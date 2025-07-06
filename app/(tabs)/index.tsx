@@ -8,7 +8,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
-import { useAuth } from '../../context/AuthContext'; // Importar useAuth
+import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
 // --- Interfaces ---
@@ -44,7 +44,7 @@ const getSuggestion = (weather: WeatherData | null, recipes: Recipe[]): Suggesti
         if (temp > 28) { const recipe = recipes.find(r => r.name.includes('Pescado Frito')); if (recipe) return { icon: '🥵', dish: recipe.name, reason: "¡Mucho calor! Algo fresco es la mejor opción.", recipe }; }
     }
     let targetCategory = '', defaultMessage: Suggestion | null = null, customReason: string | null = null;
-    if (hour < 11 || (hour === 11 && minutes < 30)) { targetCategory = 'Desayuno'; defaultMessage = { icon: '☀️', dish: "Un rico desayuno", reason: "¡Para empezar el día con energía!" }; }
+    if (hour < 12 || (hour === 11 && minutes < 30)) { targetCategory = 'Desayuno'; defaultMessage = { icon: '☀️', dish: "Un rico desayuno", reason: "¡Para empezar el día con energía!" }; }
     else if ((hour >= 11 && minutes >= 30) || (hour > 11 && hour < 15)) { targetCategory = 'Almuerzo'; customReason = "¿Qué haremos de rico hoy?"; }
     else if (hour >= 15 && (hour < 16 || (hour === 16 && minutes < 30))) { targetCategory = 'Break'; defaultMessage = { icon: '☕', dish: "Un merecido break", reason: "Una pausa para recargar energías." }; }
     else if ((hour === 16 && minutes >= 30) || (hour > 16 && hour < 20)) { targetCategory = 'Once'; defaultMessage = { icon: '🥐', dish: "Algo rico para la once", reason: "El momento más esperado del día." }; }
@@ -110,7 +110,7 @@ const DailySuggestion = ({ weather, suggestion, loading, errorMsg, onPress }: Da
 // --- Componente de la Pantalla Principal ---
 export default function HomeScreen() {
     const router = useRouter();
-    const { user } = useAuth(); // **1. Obtener el estado del usuario**
+    const { user } = useAuth();
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
     const [loading, setLoading] = useState(true);
@@ -121,12 +121,11 @@ export default function HomeScreen() {
     const handleOpenModal = (recipe: Recipe) => { setSelectedRecipe(recipe); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedRecipe(null); };
 
-    // **2. Nueva función para manejar el clic en el botón de perfil/login**
     const handleProfilePress = () => {
         if (user) {
-            router.push('/profile'); // Si hay usuario, ir al perfil
+            router.push('./profile');
         } else {
-            router.push('/(auth)/login'); // Si no, ir al login
+            router.push('/(auth)/login');
         }
     };
 
@@ -171,43 +170,53 @@ export default function HomeScreen() {
         fetchData();
     }, []);
 
+    const getGreeting = () => {
+        const hour = new Date().getHours();
+        if (hour < 12) return `Buenos días, ${user?.name || ''}`;
+        if (hour < 20) return `Buenas tardes, ${user?.name || ''}`;
+        return `Buenas noches, ${user?.name || ''}`;
+    };
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container}>
             <StatusBar style="dark" />
             <View style={styles.header}>
-                <Image source={require('../../assets/images/logo.png')} style={styles.logo} />
-                <Text style={styles.title}>Mi Sazón</Text>
+                <View>
+                    <Text style={styles.greeting}>{getGreeting()}</Text>
+                    <Text style={styles.title}>Mi Sazón</Text>
+                </View>
+                <TouchableOpacity onPress={handleProfilePress}>
+                    <Image source={ user?.photoURL ? { uri: user.photoURL } : require('../../assets/images/logo.png')} style={styles.profileImage} />
+                </TouchableOpacity>
             </View>
-            <Text style={styles.subtitle}>Tu asistente de cocina personal</Text>
 
             <DailySuggestion weather={weather} suggestion={suggestion} loading={loading} errorMsg={errorMsg} onPress={handleOpenModal} />
 
             <View style={styles.optionsContainer}>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('/discover')}>
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./discover')}>
                     <FontAwesome name="search" size={24} color={Colors.theme.primary} />
                     <Text style={styles.optionText}>Descubrir</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('/planner')}>
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./planner')}>
                     <FontAwesome name="calendar" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Mi Planificador</Text>
+                    <Text style={styles.optionText}>Planificador</Text>
                 </TouchableOpacity>
-                
-                {/* **3. Botón condicional** */}
-                <TouchableOpacity style={styles.optionButton} onPress={handleProfilePress}>
-                    <FontAwesome name={user ? "user-circle" : "sign-in"} size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>{user ? "Mi Perfil" : "Iniciar Sesión"}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('/pantry')}>
-                    <FontAwesome name="cutlery" size={24} color={Colors.theme.primary} />
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./pantry')}>
+                    <FontAwesome name="shopping-basket" size={24} color={Colors.theme.primary} />
                     <Text style={styles.optionText}>Mi Despensa</Text>
                 </TouchableOpacity>
-            
-
-                
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./map')}>
+                    <FontAwesome name="map-marker" size={24} color={Colors.theme.primary} />
+                    <Text style={styles.optionText}>Mapa</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./historial')}>
+                    <FontAwesome name="history" size={24} color={Colors.theme.primary} />
+                    <Text style={styles.optionText}>Historial</Text>
+                </TouchableOpacity>
             </View>
             
             <RecipeModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />
-        </View>
+        </ScrollView>
     );
 }
 
@@ -216,32 +225,31 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: Colors.theme.background,
-        paddingTop: 70,
-        paddingHorizontal: 20,
+        paddingTop: 60,
     },
     header: {
         flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 8,
+        paddingHorizontal: 20,
+        marginBottom: 20,
     },
-    logo: {
-        width: 50,
-        height: 50,
-        marginRight: 10,
+    greeting: {
+        fontSize: 16,
+        color: Colors.theme.grey,
     },
     title: {
-        fontSize: 36,
+        fontSize: 32,
         fontWeight: 'bold',
         color: Colors.theme.text,
     },
-    subtitle: {
-        fontSize: 18,
-        color: Colors.theme.grey,
-        textAlign: 'center',
-        marginBottom: 30,
+    profileImage: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
     },
     suggestionOuterContainer: {
+        paddingHorizontal: 20,
         shadowColor: Colors.theme.shadow,
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.2,
@@ -257,7 +265,7 @@ const styles = StyleSheet.create({
         padding: 25,
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: 200,
+        minHeight: 180,
     },
     weatherContainer: {
         position: 'absolute',
@@ -281,7 +289,7 @@ const styles = StyleSheet.create({
         marginLeft: 10,
     },
     suggestionDish: {
-        fontSize: 32,
+        fontSize: 25,
         color: Colors.theme.textLight,
         fontWeight: 'bold',
         textAlign: 'center',
@@ -305,22 +313,18 @@ const styles = StyleSheet.create({
     },
     optionsContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-around',
-        width: '100%',
-        marginTop: 'auto', // Empuja los botones hacia abajo
-        paddingBottom: 20,
-        paddingHorizontal: 10,
-        marginBottom: 20,
-        flexWrap: 'wrap', // Permite que los botones se ajusten en varias filas
-        gap: 10, // Espacio entre los botones
-        alignItems: 'center', // Centra los botones verticalmente
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingBottom: 40,
     },
     optionButton: {
         alignItems: 'center',
         backgroundColor: Colors.theme.card,
         padding: 20,
         borderRadius: 18,
-        width: '40%', // Ajustado para 3 botones
+        width: '48%',
+        marginBottom: 15,
         shadowColor: Colors.theme.shadow,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.1,
@@ -329,7 +333,7 @@ const styles = StyleSheet.create({
     },
     optionText: {
         marginTop: 10,
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: '600',
         color: Colors.theme.text,
     },

@@ -7,9 +7,9 @@ import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import MapView, { LongPressEvent, Marker } from 'react-native-maps';
-import { Colors } from '../../constants/Colors'; // Asegúrate de que esta ruta sea correcta
-import { useAuth } from '../../context/AuthContext'; // Asegúrate de que esta ruta sea correcta
-import { db } from '../../firebaseConfig'; // Asegúrate de que esta ruta sea correcta
+import { Colors } from '../constants/Colors'; // Asegúrate de que esta ruta sea correcta
+import { useAuth } from '../context/AuthContext'; // Asegúrate de que esta ruta sea correcta
+import { db } from '../firebaseConfig'; // Asegúrate de que esta ruta sea correcta
 
 // --- Interfaces ---
 interface Place {

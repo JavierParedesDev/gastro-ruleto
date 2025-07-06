@@ -36,24 +36,8 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <FontAwesome name="home" size={28} color={color} />,
         }}
       />
-
-      <Tabs.Screen
-        name="historial" // El nombre del archivo es history.tsx
-        options={{
-          title: 'Historial',
-          // Usamos FontAwesome para el ícono de historial
-          tabBarIcon: ({ color }) => <FontAwesome name="history" size={24} color={color} />,
-        }}
-      />
       
-      <Tabs.Screen
-        name="map" // El nombre del archivo es history.tsx
-        options={{
-          title: 'Mapa',
-          // Usamos FontAwesome para el ícono de historial
-          tabBarIcon: ({ color }) => <FontAwesome name="map-marker" size={24} color={color} />,
-        }}
-      />
+    
 
       <Tabs.Screen
         name="favorites"
@@ -73,6 +57,38 @@ export default function TabLayout() {
         }}
       />
 
+      <Tabs.Screen
+        name = "duels"
+        options={{
+          title: 'Duelos',
+          // Usamos FontAwesome para el ícono de perfil
+          tabBarIcon: ({ color }) => <FontAwesome name="trophy" size={24} color={color} />,
+        }}
+
+        />
+
+        <Tabs.Screen
+          name='createPost'
+          options={{
+            title: 'Crear Publicación',
+            tabBarIcon: ({ color }) => <FontAwesome name="pencil" size={24} color={color} />,
+          }}
+        />
+      <Tabs.Screen
+              name='profile'
+              options={{
+                title: 'Perfil',
+                tabBarIcon: ({ color }) => <FontAwesome name="user" size={24} color={color} />,
+              }}
+        />
+
+        <Tabs.Screen
+          name='community'
+          options={{
+            title: 'Comunidad',
+            tabBarIcon: ({ color }) => <FontAwesome name="users" size={24} color={color} />,
+          }}
+          />
      
    
    

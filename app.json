@@ -17,7 +17,20 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.shapydev.gastroruleto"
+      "package": "com.shapydev.gastroruleto",
+       "googleServicesFile": "./google-services.json", 
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAvGGSbPkBqCPXPf93aG7smuqEiUccjYMI"
+        }
+      }
     },
     "web": {
       "bundler": "metro",

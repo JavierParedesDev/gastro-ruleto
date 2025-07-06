@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "408953130510",
+    "project_id": "gastro-ruleto",
+    "storage_bucket": "gastro-ruleto.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:408953130510:android:d7f7bde3899e3d8980765f",
+        "android_client_info": {
+          "package_name": "com.shapydev.gastroruleto"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "408953130510-i4p09djs3aumfhntto7p31q9pp8s59co.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdcUTLDLuyK1vMvPrhn1m7mu7JTei30FY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "408953130510-i4p09djs3aumfhntto7p31q9pp8s59co.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

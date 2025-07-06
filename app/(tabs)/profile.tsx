@@ -4,9 +4,9 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../constants/Colors';
-import { useAuth } from '../context/AuthContext';
-import { db } from '../firebaseConfig';
+import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
 
 export default function ProfileScreen() {
     const { user, logout, fetchUserProfile } = useAuth();
