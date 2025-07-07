@@ -1,5 +1,5 @@
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { collection, doc, getDoc, getDocs, increment, orderBy, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PostDetailModal } from '../../components/PostDetailModal';
@@ -137,62 +137,72 @@ export default function UserProfileScreen() {
         try {
             await runTransaction(db, async (transaction) => {
                 if (isFollowing) {
+                    // Si ya lo sigue, lo deja de seguir
                     transaction.delete(followingRef);
                     transaction.delete(followerRef);
-                    transaction.update(currentUserRef, { followingCount: increment(-1) });
-                    transaction.update(profileUserRef, { followersCount: increment(-1) });
                 } else {
+                    // Si no lo sigue, lo empieza a seguir
                     transaction.set(followingRef, { followedAt: serverTimestamp() });
                     transaction.set(followerRef, { followedAt: serverTimestamp() });
-                    transaction.update(currentUserRef, { followingCount: increment(1) });
-                    transaction.update(profileUserRef, { followersCount: increment(1) });
                 }
             });
+            // Actualiza el estado local inmediatamente para una mejor UX
             setIsFollowing(!isFollowing);
-            setProfileUser(prev => prev ? { ...prev, followersCount: (prev.followersCount || 0) + (isFollowing ? -1 : 1) } : null);
+            setProfileUser(prev => prev ? {
+                ...prev,
+                followersCount: (prev.followersCount || 0) + (isFollowing ? -1 : 1)
+            } : null);
         } catch (error) {
             console.error("Error al seguir/dejar de seguir:", error);
+            Alert.alert("Error", "No se pudo completar la acción de seguir/dejar de seguir.");
+            // Opcional: revertir el estado local si la operación falla
+            setIsFollowing(prev => !prev);
+            setProfileUser(prev => prev ? {
+                ...prev,
+                followersCount: (prev.followersCount || 0) + (isFollowing ? 1 : -1)
+            } : null);
         }
-    };
 
-    if (loading) {
-        return <View style={styles.container}><ActivityIndicator size="large" color={Colors.theme.primary} /></View>;
-    }
+};
 
-    if (!profileUser) {
-        return <View style={styles.container}><Text>No se encontró el perfil.</Text></View>;
-    }
+if (loading) {
+    return <View style={styles.container}><ActivityIndicator size="large" color={Colors.theme.primary} /></View>;
+}
 
-    return (
-        <>
-            <Stack.Screen options={{ title: `${profileUser.name} ${profileUser.lastName}` }} />
-            <FlatList
-                ListHeaderComponent={
-                    <ProfileHeader
-                        user={profileUser}
-                        isMyProfile={isMyProfile}
-                        isFollowing={isFollowing}
-                        onFollow={handleFollow}
-                        onLogout={logout}
-                        onEdit={() => Alert.alert("Próximamente", "La edición de perfil estará disponible pronto.")}
-                    />
-                }
-                data={userPosts}
-                numColumns={3}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => <ProfilePostCard item={item} onPress={() => setSelectedPost(item)} />}
-                contentContainerStyle={styles.container}
-                ListHeaderComponentStyle={{ marginBottom: 10 }}
-                ListEmptyComponent={<View style={styles.emptyContainer}><Text style={styles.emptyText}>Este sazonador aún no ha publicado nada.</Text></View>}
-            />
-            <PostDetailModal
-                visible={!!selectedPost}
-                onClose={() => setSelectedPost(null)}
-                post={selectedPost}
-                onPostUpdate={fetchData}
-            />
-        </>
-    );
+if (!profileUser) {
+    return <View style={styles.container}><Text>No se encontró el perfil.</Text></View>;
+}
+
+return (
+    <>
+        <Stack.Screen options={{ title: `${profileUser.name} ${profileUser.lastName}` }} />
+        <FlatList
+            ListHeaderComponent={
+                <ProfileHeader
+                    user={profileUser}
+                    isMyProfile={isMyProfile}
+                    isFollowing={isFollowing}
+                    onFollow={handleFollow}
+                    onLogout={logout}
+                    onEdit={() => Alert.alert("Próximamente", "La edición de perfil estará disponible pronto.")}
+                />
+            }
+            data={userPosts}
+            numColumns={3}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => <ProfilePostCard item={item} onPress={() => setSelectedPost(item)} />}
+            contentContainerStyle={styles.container}
+            ListHeaderComponentStyle={{ marginBottom: 10 }}
+            ListEmptyComponent={<View style={styles.emptyContainer}><Text style={styles.emptyText}>Este sazonador aún no ha publicado nada.</Text></View>}
+        />
+        <PostDetailModal
+            visible={!!selectedPost}
+            onClose={() => setSelectedPost(null)}
+            post={selectedPost}
+            onPostUpdate={fetchData}
+        />
+    </>
+);
 }
 
 const styles = StyleSheet.create({

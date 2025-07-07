@@ -31,7 +31,7 @@ const PostCard = ({ item, onOpenPost, onLike, userId }: { item: Post, onOpenPost
 
     // Navega al perfil del autor al tocar el header
     const navigateToProfile = () => {
-        router.push(`./profile/${item.authorId}`);
+        router.push(`/profile/${item.authorId}`);
     };
 
     return (
