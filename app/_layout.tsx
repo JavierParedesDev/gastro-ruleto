@@ -5,6 +5,7 @@ import React, { useEffect } from 'react';
 import 'react-native-reanimated';
 import { LoginPromptModal } from '../components/LoginPromptModal';
 import { AuthProvider } from '../context/AuthContext';
+import { NotificationProvider } from '../context/NotificationContext'; // 1. Importar el nuevo provider
 
 // Prevenir que la pantalla de splash se oculte automáticamente
 SplashScreen.preventAutoHideAsync();
@@ -56,7 +57,9 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <NotificationProvider> {/* 2. Envolver la navegación con el provider */}
         <RootLayoutNav />
+      </NotificationProvider>
     </AuthProvider>
   );
 }

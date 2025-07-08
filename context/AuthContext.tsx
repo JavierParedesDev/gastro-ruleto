@@ -1,7 +1,12 @@
 import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { app, db } from '../firebaseConfig';
+
+interface Frame {
+    name: string;
+    url: string;
+}
 
 // Interfaz para los datos del perfil de usuario
 export interface UserProfile {
@@ -11,6 +16,11 @@ export interface UserProfile {
     age: string;
     email: string;
     photoURL?: string;
+    followersCount?: number;
+    followingCount?: number;
+    badges?: string[];
+    frames?: Frame[]; // Array para almacenar los marcos ganados
+    equippedFrameUrl?: string; // URL del marco que el usuario tiene equipado
 }
 
 interface AuthContextType {
@@ -39,6 +49,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoginPromptVisible, setLoginPromptVisible] = useState(false);
   const auth = getAuth(app);
 
+  const fetchUserProfile = useCallback(async (uid: string) => {
+    const docRef = doc(db, "users", uid);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+        setUser(docSnap.data() as UserProfile);
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -49,15 +67,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
-
-  const fetchUserProfile = async (uid: string) => {
-    const docRef = doc(db, "users", uid);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-        setUser(docSnap.data() as UserProfile);
-    }
-  };
+  }, [fetchUserProfile]);
 
   const promptLogin = () => setLoginPromptVisible(true);
   const closeLoginPrompt = () => setLoginPromptVisible(false);
@@ -65,11 +75,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const register = async (email: string, pass: string, name: string, lastName: string, age: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
     const { uid } = userCredential.user;
-    // Guardar los datos extra en un documento de Firestore
+    
     await setDoc(doc(db, "users", uid), {
-        uid, name, lastName, age, email, photoURL: ''
+        uid, name, lastName, age, email, photoURL: '', 
+        followersCount: 0, followingCount: 0, 
+        badges: [], frames: [], equippedFrameUrl: ''
     });
-    // Cargar el perfil recién creado para actualizar el estado de la app
+    
     await fetchUserProfile(uid);
   };
 

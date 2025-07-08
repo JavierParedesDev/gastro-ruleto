@@ -3,7 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { collection, deleteDoc, doc, getDocs, orderBy, query, where, writeBatch } from 'firebase/firestore';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
@@ -12,7 +12,7 @@ import { db } from '../../firebaseConfig';
 interface Notification {
     id: string;
     message: string;
-    status: 'approved' | 'rejected';
+    status: 'approved' | 'rejected' | 'follow'; // Añadido el estado 'follow'
     reason?: string;
     isRead: boolean;
     createdAt: any;
@@ -20,9 +20,28 @@ interface Notification {
 
 // --- Componente de la Tarjeta de Notificación ---
 const NotificationCard = ({ item, onDelete }: { item: Notification; onDelete: (id: string) => void }) => {
-    const isApproved = item.status === 'approved';
-    const iconName = isApproved ? "check-circle" : "times-circle";
-    const iconColor = isApproved ? Colors.theme.accent : Colors.theme.primary;
+    let iconName: React.ComponentProps<typeof FontAwesome>['name'];
+    let iconColor: string;
+
+    // Lógica para seleccionar el ícono y color correctos según el estado
+    switch (item.status) {
+        case 'approved':
+            iconName = "check-circle";
+            iconColor = Colors.theme.accent;
+            break;
+        case 'rejected':
+            iconName = "times-circle";
+            iconColor = Colors.theme.primary;
+            break;
+        case 'follow':
+            iconName = "user-plus"; // Nuevo ícono para notificaciones de seguimiento
+            iconColor = Colors.theme.primary;
+            break;
+        default:
+            iconName = "bell"; // Ícono por defecto si el estado no se reconoce
+            iconColor = Colors.theme.grey;
+    }
+
     const date = item.createdAt ? item.createdAt.toDate().toLocaleDateString('es-CL') : 'Fecha no disponible';
 
     return (
@@ -35,7 +54,9 @@ const NotificationCard = ({ item, onDelete }: { item: Notification; onDelete: (i
                 )}
                 <Text style={styles.cardDate}>{date}</Text>
             </View>
-            <FontAwesome name="trash" size={24} color={Colors.theme.grey} onPress={() => onDelete(item.id)} />
+            <TouchableOpacity onPress={() => onDelete(item.id)}>
+                <FontAwesome name="trash" size={24} color={Colors.theme.grey} />
+            </TouchableOpacity>
         </View>
     );
 };
@@ -56,7 +77,6 @@ export default function NotificationsScreen() {
             const fetchedNotifications: Notification[] = [];
             const unreadNotifications: string[] = [];
 
-            // **CORRECCIÓN**: Construir el objeto de forma explícita para evitar el error de TypeScript.
             querySnapshot.forEach(doc => {
                 const data = doc.data();
                 const notification: Notification = {
@@ -75,7 +95,6 @@ export default function NotificationsScreen() {
 
             setNotifications(fetchedNotifications);
 
-            // Marcar todas las notificaciones no leídas como leídas
             if (unreadNotifications.length > 0) {
                 const batch = writeBatch(db);
                 unreadNotifications.forEach(notifId => {
@@ -94,9 +113,15 @@ export default function NotificationsScreen() {
 
     useFocusEffect(
         useCallback(() => {
-            fetchAndReadNotifications();
+            if (user) {
+                fetchAndReadNotifications();
+            } else {
+                setNotifications([]);
+                setLoading(false);
+            }
         }, [user])
     );
+    
     const handleDeleteOne = async (id: string) => {
         try {
             await deleteDoc(doc(db, "notifications", id));
@@ -179,8 +204,6 @@ const styles = StyleSheet.create({
         fontSize: 32,
         fontWeight: 'bold',
         color: Colors.theme.text,
-        marginBottom: 20,
-        marginTop: 60,
     },
     card: {
         backgroundColor: Colors.theme.card,
