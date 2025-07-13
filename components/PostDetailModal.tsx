@@ -1,168 +1,248 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { addDoc, arrayRemove, arrayUnion, collection, doc, getDocs, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { addDoc, arrayRemove, arrayUnion, collection, doc, documentId, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../constants/Colors';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, UserProfile } from '../context/AuthContext';
 import { db } from '../firebaseConfig';
+import ProfilePicture from './ProfilePicture';
 
 // --- Interfaces ---
 interface Post {
     id: string;
     title: string;
-    description?: string;
     image: string;
     likes: string[];
     authorId: string;
     authorName: string;
     authorPhoto: string;
+    description?: string;
 }
 
 interface Comment {
     id: string;
     text: string;
-    userName: string;
+    userId: string;
+    userName:string;
+    userPhoto: string;
     createdAt: any;
+    userFrameUrl?: string;
+    userBadges?: string[];
+    likes?: string[];
 }
 
-// --- Componente ---
+const EMOJI_REACTIONS = ['❤️', '😂', '👍', '🔥', '�', '😍', '👏'];
+
+// --- Componente de Comentario ---
+const CommentCard = ({ comment, onLike, currentUserId }: { comment: Comment, onLike: (commentId: string) => void, currentUserId?: string }) => {
+    const featuredBadge = comment.userBadges && comment.userBadges.length > 0 ? comment.userBadges[0] : null;
+    const isLiked = currentUserId && comment.likes?.includes(currentUserId);
+
+    return (
+        <View style={styles.commentContainer}>
+            <ProfilePicture photoURL={comment.userPhoto} frameURL={comment.userFrameUrl} size={40} />
+            <View style={styles.commentTextContainer}>
+                <View style={styles.commentHeader}>
+                    <Text style={styles.commentUserName}>{comment.userName}</Text>
+                    {featuredBadge && (
+                        <View style={styles.commentBadgeContainer}>
+                            <FontAwesome name="trophy" size={12} color="#D4AF37" />
+                            <Text style={styles.commentBadgeText} numberOfLines={1}>{featuredBadge}</Text>
+                        </View>
+                    )}
+                </View>
+                <Text style={styles.commentText}>{comment.text}</Text>
+                <View style={styles.commentFooter}>
+                    <TouchableOpacity onPress={() => onLike(comment.id)} style={styles.commentActionButton}>
+                        <FontAwesome name={isLiked ? "heart" : "heart-o"} size={16} color={isLiked ? Colors.theme.primary : Colors.theme.grey} />
+                        {comment.likes && comment.likes.length > 0 && <Text style={styles.commentLikeCount}>{comment.likes.length}</Text>}
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+    );
+};
+
+// --- Componente Principal del Modal ---
 export const PostDetailModal = ({ visible, onClose, post, onPostUpdate }: { visible: boolean, onClose: () => void, post: Post | null, onPostUpdate: () => void }) => {
     const { user, promptLogin } = useAuth();
+    const [isLiked, setIsLiked] = useState(false);
+    const [likeCount, setLikeCount] = useState(0);
+    const [author, setAuthor] = useState<UserProfile | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
-    const [loadingComments, setLoadingComments] = useState(true);
     const [newComment, setNewComment] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const scrollViewRef = useRef<ScrollView>(null);
 
     useEffect(() => {
-        if (post && visible) {
-            fetchComments();
-        }
-    }, [post, visible]);
+        if (post) {
+            setIsLiked(user ? post.likes.includes(user.uid) : false);
+            setLikeCount(post.likes.length);
+            setComments([]);
+            
+            const fetchAuthor = async () => {
+                const userDoc = await getDoc(doc(db, "users", post.authorId));
+                if (userDoc.exists()) setAuthor(userDoc.data() as UserProfile);
+            };
+            fetchAuthor();
 
-    const fetchComments = async () => {
-        if (!post) return;
-        setLoadingComments(true);
+            const commentsRef = collection(db, "posts", post.id, "comments");
+            const q = query(commentsRef, orderBy("createdAt", "asc"));
+            const unsubscribe = onSnapshot(q, async (snapshot) => {
+                const fetchedCommentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Comment[];
+                if (fetchedCommentsData.length > 0) {
+                    const userIds = [...new Set(fetchedCommentsData.map(c => c.userId))];
+                    const usersRef = collection(db, "users");
+                    const qUsers = query(usersRef, where(documentId(), "in", userIds));
+                    const usersSnapshot = await getDocs(qUsers);
+                    
+                    const usersData: {[key: string]: Partial<UserProfile>} = {};
+                    usersSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        usersData[doc.id] = { equippedFrameUrl: data.equippedFrameUrl, badges: data.badges };
+                    });
+
+                    const finalComments = fetchedCommentsData.map(comment => ({
+                        ...comment,
+                        userFrameUrl: usersData[comment.userId]?.equippedFrameUrl,
+                        userBadges: usersData[comment.userId]?.badges,
+                    }));
+                    setComments(finalComments);
+                } else {
+                    setComments([]);
+                }
+            });
+            return () => unsubscribe();
+        }
+    }, [post, user]);
+
+    const handleLikePost = async () => {
+        if (!user || !post) { promptLogin(); return; }
+        const postRef = doc(db, "posts", post.id);
+        const newIsLiked = !isLiked;
+        try {
+            await updateDoc(postRef, { likes: newIsLiked ? arrayUnion(user.uid) : arrayRemove(user.uid) });
+            onPostUpdate();
+        } catch (error) { Alert.alert("Error", "No se pudo procesar el 'Me gusta'."); }
+    };
+
+    const handleLikeComment = async (commentId: string) => {
+        if (!user || !post) { promptLogin(); return; }
+        const commentRef = doc(db, "posts", post.id, "comments", commentId);
+        const comment = comments.find(c => c.id === commentId);
+        if(!comment) return;
+        const isCommentLiked = comment.likes?.includes(user.uid);
+        try {
+            await updateDoc(commentRef, { likes: isCommentLiked ? arrayRemove(user.uid) : arrayUnion(user.uid) });
+        } catch (error) {
+            console.error(error);
+            Alert.alert("Error", "No se pudo dar 'Me gusta' al comentario."); 
+        }
+    };
+    
+    const handleAddComment = async () => {
+        if (!user || !post || !newComment.trim()) { promptLogin(); return; }
+        setIsSubmitting(true);
         try {
             const commentsRef = collection(db, "posts", post.id, "comments");
-            const q = query(commentsRef, orderBy("createdAt", "desc"));
-            const querySnapshot = await getDocs(q);
-            const fetchedComments = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Comment[];
-            setComments(fetchedComments);
-        } catch (error) {
-            console.error("Error fetching comments:", error);
-        } finally {
-            setLoadingComments(false);
-        }
-    };
-
-    const handleLike = async () => {
-        if (!user) { promptLogin(); return; }
-        if (!post) return;
-
-        const postRef = doc(db, "posts", post.id);
-        const isLiked = post.likes.includes(user.uid);
-        try {
-            await updateDoc(postRef, {
-                likes: isLiked ? arrayRemove(user.uid) : arrayUnion(user.uid)
-            });
-            onPostUpdate(); // Notifica a la pantalla padre que debe refrescar los datos
-        } catch (error) {
-            console.error("Error al dar like:", error);
-        }
-    };
-
-    const handleCommentSubmit = async () => {
-        if (!user) { promptLogin(); return; }
-        if (!post || newComment.trim() === '') return;
-
-        try {
-            await addDoc(collection(db, "posts", post.id, "comments"), {
-                text: newComment,
-                userName: `${user.name} ${user.lastName}`,
+            await addDoc(commentsRef, {
+                text: newComment.trim(),
                 userId: user.uid,
+                userName: `${user.name} ${user.lastName}`,
+                userPhoto: user.photoURL,
                 createdAt: serverTimestamp(),
+                likes: [],
             });
             setNewComment('');
-            fetchComments(); // Refrescar comentarios
-            onPostUpdate(); // Refrescar el contador en la pantalla principal
-        } catch (error) {
-            Alert.alert("Error", "No se pudo publicar tu comentario.");
-        }
+            setShowEmojiPicker(false);
+            Keyboard.dismiss();
+            setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
+        } catch (error) { Alert.alert("Error", "No se pudo añadir el comentario."); } 
+        finally { setIsSubmitting(false); }
     };
 
     if (!post) return null;
 
-    const isLiked = user ? post.likes.includes(user.uid) : false;
-
     return (
-        <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
-            <View style={styles.modalContainer}>
-                <View style={styles.modalContent}>
-                    <Image source={{ uri: post.image }} style={styles.modalImage} />
-                    <ScrollView style={styles.modalScrollView}>
-                        <View style={styles.authorHeader}>
-                            <Image source={{ uri: post.authorPhoto || 'https://placehold.co/40x40' }} style={styles.authorImage} />
-                            <Text style={styles.authorName}>{post.authorName}</Text>
-                        </View>
-                        <Text style={styles.modalTitle}>{post.title}</Text>
-                        {post.description && <Text style={styles.modalText}>{post.description}</Text>}
-                        
-                        <View style={styles.actionsContainer}>
-                            <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
-                                <FontAwesome name={isLiked ? "heart" : "heart-o"} size={24} color={isLiked ? Colors.theme.primary : Colors.theme.grey} />
-                                <Text style={styles.actionText}>{post.likes.length}</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.separator} />
-                        <Text style={styles.modalSubtitle}>Comentarios</Text>
-                        {loadingComments ? <ActivityIndicator/> : (
-                            comments.length > 0 ? comments.map(comment => (
-                                <View key={comment.id} style={styles.commentContainer}>
-                                    <Text style={styles.commentAuthor}>{comment.userName}</Text>
-                                    <Text style={styles.commentText}>"{comment.text}"</Text>
-                                </View>
-                            )) : <Text style={styles.emptyText}>Sé el primero en comentar.</Text>
-                        )}
-
-                        <View style={styles.addCommentContainer}>
-                            <TextInput style={styles.commentInput} placeholder="Añade un comentario..." value={newComment} onChangeText={setNewComment} />
-                            <TouchableOpacity style={styles.submitButton} onPress={handleCommentSubmit}>
-                                <Text style={styles.submitButtonText}>Publicar</Text>
-                            </TouchableOpacity>
+        <Modal animationType="slide" transparent={false} visible={visible} onRequestClose={onClose}>
+            <SafeAreaView style={styles.safeArea}>
+                <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}>
+                    <View style={styles.header}>
+                        <ProfilePicture photoURL={author?.photoURL} frameURL={author?.equippedFrameUrl} size={40} />
+                        <Text style={styles.authorName}>{post.authorName}</Text>
+                        <TouchableOpacity onPress={onClose} style={styles.closeButton}><FontAwesome name="close" size={24} color={Colors.theme.text} /></TouchableOpacity>
+                    </View>
+                    <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent}>
+                        <Image source={{ uri: post.image }} style={styles.postImage} />
+                        <View style={styles.contentContainer}>
+                            <Text style={styles.postTitle}>{post.title}</Text>
+                            <Text style={styles.description}>{post.description}</Text>
+                            <View style={styles.actionsContainer}>
+                                <TouchableOpacity onPress={handleLikePost} style={styles.actionButton}>
+                                    <FontAwesome name={isLiked ? "heart" : "heart-o"} size={24} color={isLiked ? Colors.theme.primary : Colors.theme.text} />
+                                    <Text style={styles.likeCount}>{likeCount}</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.separator} />
+                            <Text style={styles.commentsTitle}>Comentarios ({comments.length})</Text>
+                            {comments.map(comment => <CommentCard key={comment.id} comment={comment} onLike={handleLikeComment} currentUserId={user?.uid} />)}
                         </View>
                     </ScrollView>
-                    <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                        <Text style={styles.closeButtonText}>Cerrar</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+                    <View style={styles.commentInputContainer}>
+                        <TouchableOpacity onPress={() => setShowEmojiPicker(!showEmojiPicker)} style={styles.emojiButton}>
+                            <FontAwesome name="smile-o" size={24} color={Colors.theme.grey} />
+                        </TouchableOpacity>
+                        <TextInput style={styles.input} placeholder="Añade un comentario..." value={newComment} onChangeText={setNewComment} multiline onFocus={() => setShowEmojiPicker(false)} />
+                        <TouchableOpacity onPress={handleAddComment} disabled={isSubmitting} style={styles.sendButton}>
+                            {isSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <FontAwesome name="paper-plane" size={20} color="#fff" />}
+                        </TouchableOpacity>
+                    </View>
+                    {showEmojiPicker && (
+                        <View style={styles.emojiPickerContainer}>
+                            {EMOJI_REACTIONS.map(emoji => (
+                                <TouchableOpacity key={emoji} onPress={() => setNewComment(prev => prev + emoji)}>
+                                    <Text style={styles.emoji}>{emoji}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+                </KeyboardAvoidingView>
+            </SafeAreaView>
         </Modal>
     );
 };
 
 const styles = StyleSheet.create({
-    modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-    modalContent: { height: '90%', backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
-    modalImage: { width: '100%', height: '35%' },
-    modalScrollView: { paddingHorizontal: 20 },
-    authorHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15 },
-    authorImage: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
-    authorName: { fontWeight: 'bold', fontSize: 16 },
-    modalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
-    modalText: { fontSize: 16, lineHeight: 24, color: '#333' },
-    actionsContainer: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderTopWidth: 1, borderColor: '#eee', marginTop: 10 },
-    actionButton: { flexDirection: 'row', alignItems: 'center', marginRight: 20 },
-    actionText: { marginLeft: 8, fontSize: 16, color: Colors.theme.grey },
-    modalSubtitle: { fontSize: 18, fontWeight: 'bold', marginTop: 15, marginBottom: 10 },
-    commentContainer: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-    commentText: { fontStyle: 'italic', color: '#555', marginTop: 4 },
-    commentAuthor: { fontSize: 14, color: Colors.theme.text, fontWeight: '600' },
-    addCommentContainer: { marginTop: 20, paddingBottom: 40 },
-    commentInput: { height: 60, borderColor: '#ddd', borderWidth: 1, borderRadius: 10, padding: 10, textAlignVertical: 'top', marginBottom: 10 },
-    submitButton: { backgroundColor: Colors.theme.accent, padding: 12, borderRadius: 10, alignItems: 'center' },
-    submitButtonText: { color: 'white', fontWeight: 'bold' },
-    closeButton: { backgroundColor: Colors.theme.primary, padding: 15, alignItems: 'center' },
-    closeButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-    emptyText: { textAlign: 'center', color: Colors.theme.grey, fontStyle: 'italic', paddingVertical: 20 },
-    separator: { height: 1, backgroundColor: '#eee', marginVertical: 15 },
+    safeArea: { flex: 1, backgroundColor: Colors.theme.card },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
+    authorName: { flex: 1, marginLeft: 10, fontSize: 16, fontWeight: 'bold' },
+    closeButton: { padding: 5 },
+    scrollContent: { paddingBottom: 20 },
+    postImage: { width: '100%', height: 350 },
+    contentContainer: { padding: 20 },
+    postTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
+    description: { fontSize: 16, lineHeight: 24, color: Colors.theme.grey },
+    actionsContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 20 },
+    actionButton: { flexDirection: 'row', alignItems: 'center' },
+    likeCount: { marginLeft: 8, fontSize: 16, fontWeight: '600' },
+    separator: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
+    commentsTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
+    commentContainer: { flexDirection: 'row', marginBottom: 15, alignItems: 'flex-start' },
+    commentTextContainer: { marginLeft: 10, flex: 1, backgroundColor: '#f0f2f5', padding: 10, borderRadius: 10 },
+    commentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' },
+    commentUserName: { fontWeight: 'bold', marginRight: 8 },
+    commentBadgeContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFBEB', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+    commentBadgeText: { marginLeft: 4, fontSize: 11, fontWeight: '600', color: '#B45309' },
+    commentText: { color: Colors.theme.text },
+    commentFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 8, },
+    commentActionButton: { flexDirection: 'row', alignItems: 'center', marginRight: 15, },
+    commentLikeCount: { marginLeft: 5, fontSize: 14, color: Colors.theme.grey, fontWeight: '600' },
+    commentInputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: Colors.theme.card },
+    input: { flex: 1, backgroundColor: '#f0f2f5', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, maxHeight: 100, marginLeft: 10 },
+    emojiButton: { padding: 5 },
+    sendButton: { marginLeft: 10, backgroundColor: Colors.theme.primary, padding: 12, borderRadius: 25 },
+    emojiPickerContainer: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 10, backgroundColor: '#f9f9f9', borderTopWidth: 1, borderTopColor: '#eee' },
+    emoji: { fontSize: 28 },
 });

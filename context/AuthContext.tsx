@@ -1,26 +1,32 @@
-import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut
+} from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { app, db } from '../firebaseConfig';
+import { auth, db } from '../firebaseConfig';
 
-interface Frame {
-    name: string;
-    url: string;
-}
 
-// Interfaz para los datos del perfil de usuario
+interface Frame { name: string; url: string; }
+
 export interface UserProfile {
     uid: string;
     name: string;
     lastName: string;
-    age: string;
+    birthDate: string; 
+    gender: string;   
     email: string;
+    description?: string;
     photoURL?: string;
     followersCount?: number;
     followingCount?: number;
     badges?: string[];
-    frames?: Frame[]; // Array para almacenar los marcos ganados
-    equippedFrameUrl?: string; // URL del marco que el usuario tiene equipado
+    frames?: Frame[];
+    equippedFrameUrl?: string;
+    viewedBadgesCount?: number; 
+    viewedFramesCount?: number; 
 }
 
 interface AuthContextType {
@@ -29,7 +35,7 @@ interface AuthContextType {
   isLoginPromptVisible: boolean;
   promptLogin: () => void;
   closeLoginPrompt: () => void;
-  register: (email: string, pass: string, name: string, lastName: string, age: string) => Promise<void>;
+  register: (email: string, pass: string, name: string, lastName: string, birthDate: string, gender: string) => Promise<void>;
   login: (email: string, pass: string) => Promise<any>;
   logout: () => Promise<void>;
   fetchUserProfile: (uid: string) => Promise<void>;
@@ -47,7 +53,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLoginPromptVisible, setLoginPromptVisible] = useState(false);
-  const auth = getAuth(app);
 
   const fetchUserProfile = useCallback(async (uid: string) => {
     const docRef = doc(db, "users", uid);
@@ -72,14 +77,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const promptLogin = () => setLoginPromptVisible(true);
   const closeLoginPrompt = () => setLoginPromptVisible(false);
 
-  const register = async (email: string, pass: string, name: string, lastName: string, age: string) => {
+  const register = async (email: string, pass: string, name: string, lastName: string, birthDate: string, gender: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
     const { uid } = userCredential.user;
     
     await setDoc(doc(db, "users", uid), {
-        uid, name, lastName, age, email, photoURL: '', 
+        uid, name, lastName, birthDate, gender, email, photoURL: '', description: '',
         followersCount: 0, followingCount: 0, 
-        badges: [], frames: [], equippedFrameUrl: ''
+        badges: [], frames: [], equippedFrameUrl: '',
+         viewedBadgesCount: 0, viewedFramesCount: 0, 
     });
     
     await fetchUserProfile(uid);

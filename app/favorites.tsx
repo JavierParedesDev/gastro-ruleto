@@ -5,8 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import { collection, getDocs } from 'firebase/firestore';
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Dimensions, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../../constants/Colors';
-import { db } from '../../firebaseConfig';
+import { Colors } from '../constants/Colors';
+import { db } from '../firebaseConfig';
 
 // --- Interfaces ---
 interface Recipe {

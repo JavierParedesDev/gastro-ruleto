@@ -4,11 +4,17 @@ import { collection, getDocs, onSnapshot, orderBy, query, where } from 'firebase
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import ProfilePicture from '../../components/ProfilePicture';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
 // --- Interfaces ---
+interface Prize {
+    type: 'badge' | 'frame';
+    value: string;
+}
+
 interface Duel {
     id: string;
     title: string;
@@ -16,12 +22,15 @@ interface Duel {
     endDate: { toDate: () => Date };
     isActive: boolean;
     winner?: {
+        authorId: string;
         authorName: string;
         authorPhoto: string;
         title: string;
         image: string;
     };
+    prize?: Prize;
 }
+
 interface Post {
     id: string;
     title: string;
@@ -64,15 +73,34 @@ const ParticipantCard = ({ item, rank }: { item: Post, rank?: number }) => {
 
 const LastWinnerCard = ({ duel }: { duel: Duel }) => (
     <Animated.View entering={FadeInDown} style={styles.lastWinnerCard}>
-        <Text style={styles.sectionTitle}>Último Ganador</Text>
+        <Text style={styles.sectionTitle}>🏆 Último Campeón</Text>
         <Image source={{ uri: duel.winner?.image }} style={styles.winnerImage} />
         <View style={styles.winnerInfo}>
-            <Image source={{ uri: duel.winner?.authorPhoto }} style={styles.winnerAuthorImage} />
+            <ProfilePicture photoURL={duel.winner?.authorPhoto} size={40} />
             <View>
                 <Text style={styles.winnerPostTitle}>{duel.winner?.title}</Text>
-                <Text style={styles.winnerAuthorName}>{duel.winner?.authorName}</Text>
+                <Text style={styles.winnerAuthorName}>Por: {duel.winner?.authorName}</Text>
             </View>
         </View>
+        {duel.prize && (
+            <View style={styles.prizeSection}>
+                <Text style={styles.prizeTitle}>Premio Obtenido</Text>
+                <View style={styles.prizeContainer}>
+                    {duel.prize.type === 'badge' ? (
+                        <>
+                            <FontAwesome name="shield" size={20} color={Colors.theme.accent} />
+                            <Text style={styles.prizeValue}>{duel.prize.value}</Text>
+                        </>
+                    ) : (
+                        <>
+                            <FontAwesome name="image" size={20} color={Colors.theme.accent} />
+                            <Text style={styles.prizeValue}>Marco de Perfil</Text>
+                            <Image source={{ uri: duel.prize.value }} style={styles.framePreview} />
+                        </>
+                    )}
+                </View>
+            </View>
+        )}
     </Animated.View>
 );
 
@@ -231,10 +259,14 @@ const styles = StyleSheet.create({
     // Last Winner
     lastWinnerCard: { backgroundColor: Colors.theme.card, borderRadius: 15, padding: 15, marginBottom: 20, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
     winnerImage: { width: '100%', height: 180, borderRadius: 10, marginBottom: 10 },
-    winnerInfo: { flexDirection: 'row', alignItems: 'center' },
-    winnerAuthorImage: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
-    winnerPostTitle: { fontSize: 16, fontWeight: 'bold', color: Colors.theme.text },
-    winnerAuthorName: { fontSize: 14, color: Colors.theme.grey },
+    winnerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+    winnerPostTitle: { fontSize: 16, fontWeight: 'bold', color: Colors.theme.text, flexShrink: 1, marginLeft: 10 },
+    winnerAuthorName: { fontSize: 14, color: Colors.theme.grey, marginLeft: 10 },
+    prizeSection: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+    prizeTitle: { fontSize: 14, fontWeight: 'bold', color: Colors.theme.grey, marginBottom: 5 },
+    prizeContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0FDF4', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8 },
+    prizeValue: { marginLeft: 8, fontSize: 16, fontWeight: '600', color: Colors.theme.accent },
+    framePreview: { width: 30, height: 30, marginLeft: 10, resizeMode: 'contain' },
 
     // Active Duel
     activeDuelSection: { backgroundColor: Colors.theme.card, borderRadius: 15, padding: 15, marginBottom: 20, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },

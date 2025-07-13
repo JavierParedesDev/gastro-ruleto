@@ -1,151 +1,198 @@
 import { FontAwesome } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router';
-import { addDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
+import { useRouter } from 'expo-router';
+import { addDoc, collection, getDocs, limit, query, serverTimestamp, where } from 'firebase/firestore';
 import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebaseConfig';
 
+// --- Interfaces ---
 interface Duel {
     id: string;
     title: string;
 }
 
+// --- Pantalla de Crear Publicación ---
 export default function CreatePostScreen() {
     const { user } = useAuth();
     const router = useRouter();
-    const [postType, setPostType] = useState<'recipe' | 'story'>('recipe');
+    const [image, setImage] = useState<string | null>(null);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
-    const [imageUri, setImageUri] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
     const [activeDuel, setActiveDuel] = useState<Duel | null>(null);
-    const [participateInDuel, setParticipateInDuel] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
-        const findActiveDuel = async () => {
+        const fetchActiveDuel = async () => {
             const duelsRef = collection(db, "duels");
-            const q = query(duelsRef, where("isActive", "==", true));
-            const duelSnapshot = await getDocs(q);
-            if (!duelSnapshot.empty) {
-                setActiveDuel({ id: duelSnapshot.docs[0].id, ...duelSnapshot.docs[0].data() } as Duel);
+            const q = query(duelsRef, where("isActive", "==", true), limit(1));
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const duelDoc = snapshot.docs[0];
+                setActiveDuel({ id: duelDoc.id, ...duelDoc.data() } as Duel);
             }
         };
-        findActiveDuel();
+        fetchActiveDuel();
     }, []);
 
-    const pickImage = async () => {
+    const handlePickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert("Permiso denegado", "Necesitamos acceso a tu galería para seleccionar una imagen.");
+            return;
+        }
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
-            aspect: [4, 3],
+            aspect: [4, 5],
             quality: 0.7,
         });
-        if (!result.canceled) setImageUri(result.assets[0].uri);
+        if (!result.canceled) {
+            setImage(result.assets[0].uri);
+        }
     };
 
-    const handleSubmit = async () => {
-        if (!title || !imageUri) {
-            return Alert.alert("Campos incompletos", "Por favor, añade un título y una imagen para tu publicación.");
+    const handleTakePhoto = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert("Permiso denegado", "Necesitamos acceso a tu cámara para tomar una foto.");
+            return;
         }
-        if (!user) return;
+        let result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [4, 5],
+            quality: 0.7,
+        });
+        if (!result.canceled) {
+            setImage(result.assets[0].uri);
+        }
+    };
 
-        setLoading(true);
+    const handleShare = async () => {
+        if (!image || !title.trim() || !user) return;
+        setIsSubmitting(true);
         try {
-            // 1. Subir la imagen a Storage
-            const response = await fetch(imageUri);
+            const response = await fetch(image);
             const blob = await response.blob();
             const storage = getStorage();
             const storageRef = ref(storage, `community_posts/${user.uid}_${Date.now()}.jpg`);
             await uploadBytes(storageRef, blob);
             const downloadURL = await getDownloadURL(storageRef);
 
-            // 2. Guardar los datos de la publicación en Firestore
-            await addDoc(collection(db, "posts"), {
-                type: postType,
-                title,
-                description,
+            const postData: any = {
+                title: title.trim(),
+                description: description.trim(),
                 image: downloadURL,
                 authorId: user.uid,
                 authorName: `${user.name} ${user.lastName}`,
-                authorPhoto: user.photoURL || '',
-                createdAt: serverTimestamp(),
+                authorPhoto: user.photoURL,
                 likes: [],
-                duelId: participateInDuel && activeDuel ? activeDuel.id : null,
-            });
+                createdAt: serverTimestamp(),
+            };
 
-            Alert.alert("¡Éxito!", "Tu publicación ha sido compartida.");
+            if (activeDuel) {
+                postData.duelId = activeDuel.id;
+            }
+
+            await addDoc(collection(db, 'posts'), postData);
+            Alert.alert("¡Éxito!", "Tu publicación ha sido compartida en la comunidad.");
             router.back();
-
         } catch (error) {
-            console.error("Error al compartir:", error);
+            console.error("Error al compartir: ", error);
             Alert.alert("Error", "No se pudo compartir tu publicación.");
         } finally {
-            setLoading(false);
+            setIsSubmitting(false);
         }
     };
 
     return (
-        <ScrollView style={styles.container}>
-            <Stack.Screen options={{ title: "Crear Publicación" }} />
-            <Text style={styles.title}>Comparte tu Sazón</Text>
-            
-            <View style={styles.typeSelector}>
-                <TouchableOpacity onPress={() => setPostType('recipe')} style={[styles.typeButton, postType === 'recipe' && styles.typeButtonActive]}>
-                    <Text style={[styles.typeButtonText, postType === 'recipe' && styles.typeButtonTextActive]}>Publicación de Receta</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setPostType('story')} style={[styles.typeButton, postType === 'story' && styles.typeButtonActive]}>
-                    <Text style={[styles.typeButtonText, postType === 'story' && styles.typeButtonTextActive]}>Momento</Text>
-                </TouchableOpacity>
-            </View>
+        <SafeAreaView style={styles.container}>
+            <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+            >
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <Text style={styles.headerTitle}>Crear Publicación</Text>
+                    
+                    {activeDuel && (
+                        <View style={styles.duelBanner}>
+                            <FontAwesome name="trophy" size={20} color="#FFC107" />
+                            <Text style={styles.duelText}>¡Estás participando en el duelo: <Text style={{fontWeight: 'bold'}}>{activeDuel.title}</Text>!</Text>
+                        </View>
+                    )}
 
-            <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
-                {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : (<><FontAwesome name="camera" size={24} color={Colors.theme.primary} /><Text style={styles.imagePickerText}>Añadir Foto Principal</Text></>)}
-            </TouchableOpacity>
+                    <TouchableOpacity style={styles.imagePicker} onPress={handlePickImage}>
+                        {image ? (
+                            <Image source={{ uri: image }} style={styles.imagePreview} />
+                        ) : (
+                            <View style={styles.imagePlaceholder}>
+                                <FontAwesome name="image" size={50} color={Colors.theme.grey} />
+                                <Text style={styles.imagePlaceholderText}>Toca para seleccionar una imagen</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
 
-            <Text style={styles.label}>{postType === 'recipe' ? 'Nombre de tu plato' : 'Título de tu Historia'}</Text>
-            <TextInput style={styles.input} placeholder={postType === 'recipe' ? 'Ej: Mi plato de cazuela ' : 'Ej: Un asado con los amigos'} value={title} onChangeText={setTitle} />
-            
-            <Text style={styles.label}>{postType === 'recipe' ? 'Descripción o secreto' : 'Cuéntanos tu historia...'}</Text>
-            <TextInput style={[styles.input, {height: 100}]} placeholder="Añade una descripción..." value={description} onChangeText={setDescription} multiline />
+                    <View style={styles.actionButtonsContainer}>
+                        <TouchableOpacity style={styles.actionButton} onPress={handlePickImage}>
+                            <FontAwesome name="photo" size={20} color={Colors.theme.primary} />
+                            <Text style={styles.actionButtonText}>Galería</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
+                            <FontAwesome name="camera" size={20} color={Colors.theme.primary} />
+                            <Text style={styles.actionButtonText}>Tomar Foto</Text>
+                        </TouchableOpacity>
+                    </View>
 
-            {activeDuel && (
-                <View style={styles.duelContainer}>
-                    <Text style={styles.duelText}>Participar en: "{activeDuel.title}"</Text>
-                    <Switch
-                        trackColor={{ false: "#767577", true: Colors.theme.accent }}
-                        thumbColor={participateInDuel ? "#f4f3f4" : "#f4f3f4"}
-                        onValueChange={setParticipateInDuel}
-                        value={participateInDuel}
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Título de tu plato..."
+                        value={title}
+                        onChangeText={setTitle}
                     />
-                </View>
-            )}
+                    <TextInput
+                        style={[styles.input, styles.textArea]}
+                        placeholder="Añade una descripción..."
+                        value={description}
+                        onChangeText={setDescription}
+                        multiline
+                    />
 
-            <TouchableOpacity style={[styles.submitButton, loading && {backgroundColor: Colors.theme.grey}]} onPress={handleSubmit} disabled={loading}>
-                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.submitButtonText}>Publicar</Text>}
-            </TouchableOpacity>
-        </ScrollView>
+                    <TouchableOpacity 
+                        style={[styles.shareButton, (!image || !title.trim()) && styles.shareButtonDisabled]} 
+                        onPress={handleShare} 
+                        disabled={!image || !title.trim() || isSubmitting}
+                    >
+                        {isSubmitting ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <Text style={styles.shareButtonText}>Compartir</Text>
+                        )}
+                    </TouchableOpacity>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 20, backgroundColor: Colors.theme.background },
-    title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
-    typeSelector: { flexDirection: 'row', marginBottom: 20, backgroundColor: '#eee', borderRadius: 10, overflow: 'hidden' },
-    typeButton: { flex: 1, padding: 12, alignItems: 'center' },
-    typeButtonActive: { backgroundColor: Colors.theme.primary },
-    typeButtonText: { color: Colors.theme.text, fontWeight: '600' },
-    typeButtonTextActive: { color: 'white' },
-    label: { fontSize: 16, fontWeight: '600', color: Colors.theme.grey, marginTop: 15, marginBottom: 5 },
-    input: { height: 50, borderColor: '#ddd', borderWidth: 1, borderRadius: 10, paddingHorizontal: 15, fontSize: 16, backgroundColor: '#fff' },
-    imagePicker: { height: 200, width: '100%', backgroundColor: '#f0f2f5', borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
-    previewImage: { width: '100%', height: '100%', borderRadius: 10 },
-    imagePickerText: { marginTop: 8, color: Colors.theme.primary, fontWeight: 'bold' },
-    duelContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#e8f5e9', padding: 15, borderRadius: 10, marginTop: 20 },
-    duelText: { flex: 1, fontSize: 16, color: Colors.theme.accent, fontWeight: 'bold' },
-    submitButton: { backgroundColor: Colors.theme.accent, padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 30, marginBottom: 50 },
-    submitButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+    container: { flex: 1, backgroundColor: Colors.theme.background },
+    scrollContent: { padding: 20, paddingBottom: 40 }, // Added more padding to the bottom
+    headerTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+    duelBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFBEB', padding: 15, borderRadius: 10, marginBottom: 20 },
+    duelText: { marginLeft: 10, fontSize: 15, color: '#B45309' },
+    imagePicker: { width: '100%', height: 300, backgroundColor: '#f0f2f5', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 15, overflow: 'hidden' },
+    imagePreview: { width: '100%', height: '100%' },
+    imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
+    imagePlaceholderText: { marginTop: 10, color: Colors.theme.grey },
+    actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 20 },
+    actionButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.theme.card, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
+    actionButtonText: { marginLeft: 10, fontWeight: '600', color: Colors.theme.primary },
+    input: { backgroundColor: Colors.theme.card, padding: 15, borderRadius: 10, fontSize: 16, marginBottom: 15, borderWidth: 1, borderColor: '#eee' },
+    textArea: { height: 100, textAlignVertical: 'top' },
+    shareButton: { backgroundColor: Colors.theme.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
+    shareButtonDisabled: { backgroundColor: Colors.theme.grey },
+    shareButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
 });

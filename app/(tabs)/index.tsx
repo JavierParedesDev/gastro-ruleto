@@ -213,6 +213,10 @@ export default function HomeScreen() {
                     <FontAwesome name="history" size={24} color={Colors.theme.primary} />
                     <Text style={styles.optionText}>Historial</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./favorites')}>
+                    <FontAwesome name="star" size={24} color={Colors.theme.primary} />
+                    <Text style={styles.optionText}>Favoritos</Text>
+                </TouchableOpacity>
             </View>
             
             <RecipeModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />

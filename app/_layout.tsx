@@ -15,18 +15,17 @@ function RootLayoutNav() {
   return (
     <>
       <Stack>
-        {/* Define los grupos de pantallas */}
+    
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        {/* Se registra el grupo 'profile' y se oculta su header */}
+
         <Stack.Screen name="profile" options={{ headerShown: false }} />
-        
-        {/* Define las pantallas modales */}
+ 
         <Stack.Screen name="cookingMode" options={{ title: 'Modo Cocina', presentation: 'modal' }} />
         <Stack.Screen name="createPost" options={{ title: 'Crear Publicación', presentation: 'modal' }} />
         <Stack.Screen name="profile/[userId]" options={{ title: 'Perfil', presentation: 'modal' }} />
+        <Stack.Screen name='favorites' options={{ title: 'Favoritos', presentation: 'modal' }} />
 
-        {/* Pantalla para rutas no encontradas */}
         <Stack.Screen name="+not-found" />
       </Stack>
       
@@ -57,7 +56,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <NotificationProvider> {/* 2. Envolver la navegación con el provider */}
+      <NotificationProvider> 
         <RootLayoutNav />
       </NotificationProvider>
     </AuthProvider>
