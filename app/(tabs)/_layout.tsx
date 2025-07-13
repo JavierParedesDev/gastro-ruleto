@@ -1,10 +1,9 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
-import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
@@ -21,7 +20,7 @@ const TabBarIconWithBadge = ({ name, color, hasBadge }: { name: React.ComponentP
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { unreadCount } = useNotifications();
-  const { user } = useAuth(); // Obtener el usuario desde el contexto de autenticación
+  const { user } = useAuth(); // Obtenemos el estado del usuario
 
   // Calcular si hay nuevos premios (insignias o marcos)
   const hasNewRewards = user ? 
@@ -31,22 +30,18 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      // 1. Definir la ruta inicial
       initialRouteName="index"
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarBackground: TabBarBackground,
-        tabBarStyle: Platform.select({
-            ios: {
-              position: 'absolute',
-            },
-            default: {},
-        }),
+        tabBarStyle: {
+          backgroundColor: Colors[colorScheme ?? 'light'].background,
+          borderTopColor: colorScheme === 'dark' ? '#222' : '#eee',
+        }
       }}>
       
-      {/* 2. Reordenar las pestañas para una mejor experiencia */}
+      {/* Pestañas visibles para todos */}
       <Tabs.Screen
         name='community'
         options={{
@@ -61,20 +56,24 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <FontAwesome name="trophy" size={24} color={color} />,
         }}
       />
-      <Tabs.Screen
+       <Tabs.Screen
         name="index"
         options={{
           title: 'Inicio',
           tabBarIcon: ({ color }) => <FontAwesome name="home" size={28} color={color} />,
         }}
       />
+
+      {/* Pestañas condicionales */}
       <Tabs.Screen
         name="notifications"
         options={{
           title: 'Notificaciones',
           tabBarIcon: ({ color }) => <FontAwesome name="bell" size={24} color={color} />,
           tabBarBadge: unreadCount > 0 ? unreadCount : undefined, 
-          tabBarBadgeStyle: { backgroundColor: Colors.theme.primary, color: Colors.theme.textLight }
+          tabBarBadgeStyle: { backgroundColor: Colors.theme.primary, color: Colors.theme.textLight },
+          // **Ocultar si no está logueado**
+          href: user ? '/(tabs)/notifications' : null,
         }}
       />
       <Tabs.Screen
@@ -88,10 +87,12 @@ export default function TabLayout() {
               hasBadge={hasNewRewards}
             />
           ),
+          // **Ocultar si no está logueado**
+          href: user ? '/(tabs)/profile' : null,
         }}
       />
 
-      {/* Pestañas eliminadas de la barra principal para una UI más limpia */}
+      {/* Pestañas que siempre estarán ocultas */}
       <Tabs.Screen name="favorites" options={{ href: null }} />
       <Tabs.Screen name="createPost" options={{ href: null }} />
       
@@ -109,6 +110,6 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         backgroundColor: Colors.theme.primary,
         borderWidth: 1.5,
-        borderColor: '#fff', // Asumiendo que el fondo de la barra de pestañas es blanco
+        borderColor: '#fff', 
     }
 });

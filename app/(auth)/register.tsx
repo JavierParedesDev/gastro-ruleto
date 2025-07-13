@@ -1,9 +1,9 @@
 import { FontAwesome } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ImageBackground, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 
@@ -59,43 +59,34 @@ export default function RegisterScreen() {
     };
 
     return (
-        <LinearGradient
-            colors={[Colors.theme.primary, Colors.theme.secondary]}
+        <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?q=80&w=2070&auto=format&fit=crop' }}
             style={styles.container}
         >
-            <SafeAreaView style={{ flex: 1 }}>
+            <View style={styles.overlay} />
+            <SafeAreaView style={{ flex: 1, width: '100%' }}>
+                <TouchableOpacity style={styles.closeButton} onPress={() => router.replace('/(tabs)')}>
+                    <FontAwesome name="close" size={24} color="white" />
+                </TouchableOpacity>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
                     behavior={Platform.OS === "ios" ? "padding" : "height"}
                 >
                     <ScrollView contentContainerStyle={styles.scrollContent}>
-                        <View style={styles.header}>
+                        <BlurView intensity={80} tint="dark" style={styles.card}>
                             <Image source={require('../../assets/images/logo.png')} style={styles.logo} />
-                            <Text style={styles.title}>Bienvenido a Mi Sazón</Text>
-                            <Text style={styles.subtitle}>Crea una cuenta para empezar a compartir</Text>
-                        </View>
+                            <Text style={styles.title}>Crear Cuenta</Text>
 
-                        <View style={styles.formContainer}>
-                            <View style={styles.inputIconContainer}>
-                                <FontAwesome name="user-o" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                <TextInput style={styles.input} placeholder="Nombre" value={name} onChangeText={setName} />
-                            </View>
-                            <View style={styles.inputIconContainer}>
-                                <FontAwesome name="user-o" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                <TextInput style={styles.input} placeholder="Apellido" value={lastName} onChangeText={setLastName} />
-                            </View>
-                            <View style={styles.inputIconContainer}>
-                                <FontAwesome name="envelope-o" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                <TextInput style={styles.input} placeholder="Correo electrónico" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-                            </View>
-                            
-                            <TouchableOpacity onPress={() => setShowDatePicker(true)}>
-                                <View style={styles.inputIconContainer}>
-                                    <FontAwesome name="calendar-o" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                    <Text style={[styles.input, styles.dateText, !birthDate && styles.placeholder]}>
-                                        {birthDate || "Fecha de Nacimiento"}
-                                    </Text>
-                                </View>
+                            <TextInput style={styles.input} placeholder="Nombre" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={name} onChangeText={setName} />
+                            <TextInput style={styles.input} placeholder="Apellido" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={lastName} onChangeText={setLastName} />
+                            <TextInput style={styles.input} placeholder="Email" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                            <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={password} onChangeText={setPassword} secureTextEntry />
+                            <TextInput style={styles.input} placeholder="Confirmar Contraseña" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
+
+                            <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
+                                <Text style={[styles.dateText, !birthDate && styles.placeholder]}>
+                                    {birthDate || "Fecha de Nacimiento"}
+                                </Text>
                             </TouchableOpacity>
 
                             {showDatePicker && (
@@ -106,6 +97,7 @@ export default function RegisterScreen() {
                                     display="spinner"
                                     onChange={onDateChange}
                                     maximumDate={new Date()}
+                                    themeVariant='dark'
                                 />
                             )}
                             
@@ -121,52 +113,98 @@ export default function RegisterScreen() {
                                 ))}
                             </View>
 
-                            <View style={styles.inputIconContainer}>
-                                <FontAwesome name="lock" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                <TextInput style={styles.input} placeholder="Contraseña" value={password} onChangeText={setPassword} secureTextEntry />
-                            </View>
-                            <View style={styles.inputIconContainer}>
-                                <FontAwesome name="lock" size={20} color={Colors.theme.grey} style={styles.icon} />
-                                <TextInput style={styles.input} placeholder="Confirmar contraseña" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
-                            </View>
-
                             <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
-                                {loading ? <ActivityIndicator color={Colors.theme.primary} /> : <Text style={styles.buttonText}>Crear Cuenta</Text>}
+                                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrarse</Text>}
                             </TouchableOpacity>
-                        </View>
-
-                        <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-                            <Text style={styles.footerText}>¿Ya tienes una cuenta? <Text style={styles.linkText}>Inicia Sesión</Text></Text>
-                        </TouchableOpacity>
+                            
+                            <TouchableOpacity onPress={() => router.push('/(auth)/login')} style={{marginTop: 20}}>
+                                <Text style={styles.linkText}>¿Ya tienes una cuenta? <Text style={styles.linkTextBold}>Ingresar</Text></Text>
+                            </TouchableOpacity>
+                        </BlurView>
                     </ScrollView>
                 </KeyboardAvoidingView>
             </SafeAreaView>
-        </LinearGradient>
+        </ImageBackground>
     );
 }
 
+
 const styles = StyleSheet.create({
-    container: { flex: 1 },
-    scrollContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 30 },
-    header: { alignItems: 'center', marginBottom: 30 },
-    logo: { width: 90, height: 90, marginBottom: 20 },
-    title: { fontSize: 26, fontWeight: 'bold', color: 'white', textShadowColor: 'rgba(0, 0, 0, 0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-    subtitle: { fontSize: 16, color: 'rgba(255, 255, 255, 0.9)', marginTop: 5 },
-    formContainer: { backgroundColor: 'white', borderRadius: 20, padding: 25, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5 },
-    inputIconContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f2f5', borderRadius: 10, marginBottom: 15 },
-    icon: { paddingHorizontal: 15 },
-    input: { flex: 1, paddingVertical: 15, paddingRight: 15, fontSize: 16, color: Colors.theme.text },
-    dateText: { flex: 1, paddingVertical: 15, paddingRight: 15, fontSize: 16 },
-    placeholder: { color: '#C7C7CD' },
-    genderContainer: { marginBottom: 15 },
-    genderOptions: { flexDirection: 'row', justifyContent: 'space-around' },
-    genderButton: { paddingVertical: 10, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1.5, borderColor: '#e0e0e0', flex: 1, marginHorizontal: 4, alignItems: 'center' },
-    genderButtonSelected: { backgroundColor: 'rgba(255, 92, 0, 0.1)', borderColor: Colors.theme.primary },
-    genderButtonText: { color: Colors.theme.grey, fontWeight: '600', fontSize: 12 },
-    genderButtonTextSelected: { color: Colors.theme.primary },
-    button: { backgroundColor: 'white', padding: 18, borderRadius: 10, alignItems: 'center', marginTop: 10, borderWidth: 2, borderColor: Colors.theme.secondary },
-    buttonDisabled: { backgroundColor: '#e0e0e0' },
-    buttonText: { color: Colors.theme.primary, fontSize: 16, fontWeight: 'bold' },
-    footerText: { marginTop: 25, textAlign: 'center', color: 'white', fontWeight: '500' },
-    linkText: { fontWeight: 'bold', textDecorationLine: 'underline' },
+    container: {
+        flex: 1,
+    },
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    closeButton: {
+        position: 'absolute',
+        top: 20,
+        right: 20,
+        zIndex: 10,
+        padding: 10,
+    },
+    scrollContent: { 
+        flexGrow: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        paddingVertical: 30 
+    },
+    card: {
+        width: '90%',
+        maxWidth: 400,
+        borderRadius: 20,
+        padding: 25,
+        overflow: 'hidden',
+    },
+    logo: {
+        width: 80,
+        height: 80,
+        marginBottom: 15,
+        alignSelf: 'center',
+    },
+    title: {
+        fontSize: 32,
+        fontWeight: 'bold',
+        color: 'white',
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    input: {
+        width: '100%',
+        height: 55,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 15,
+        paddingHorizontal: 20,
+        marginBottom: 15,
+        fontSize: 16,
+        color: 'white',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+        justifyContent: 'center',
+    },
+    dateText: { color: 'white' },
+    placeholder: { color: 'rgba(255, 255, 255, 0.5)' },
+    genderContainer: { flexDirection: 'column',gap: 10, justifyContent: 'space-between', marginBottom: 15  },
+    genderButton: { paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: 'rgba(255, 255, 255, 0.2)', flex: 1, marginHorizontal: 4, alignItems: 'center' },
+    genderButtonSelected: { backgroundColor: 'rgba(255, 92, 0, 0.4)', borderColor: Colors.theme.primary },
+    genderButtonText: { color: 'rgba(255, 255, 255, 0.7)', fontWeight: '600' },
+    genderButtonTextSelected: { color: 'white' },
+    button: {
+        width: '100%',
+        backgroundColor: Colors.theme.primary,
+        padding: 18,
+        borderRadius: 15,
+        alignItems: 'center',
+        marginTop: 10,
+        shadowColor: Colors.theme.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 15,
+        elevation: 10,
+    },
+    buttonDisabled: { backgroundColor: '#555' },
+    buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+    linkText: { marginTop: 25, textAlign: 'center', color: 'rgba(255, 255, 255, 0.7)' },
+    linkTextBold: { fontWeight: 'bold', color: 'white' },
 });

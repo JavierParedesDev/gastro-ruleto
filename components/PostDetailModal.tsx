@@ -31,7 +31,7 @@ interface Comment {
     likes?: string[];
 }
 
-const EMOJI_REACTIONS = ['❤️', '😂', '👍', '🔥', '�', '😍', '👏'];
+const EMOJI_REACTIONS = ['❤️', '😂', '👍', '🔥', '😢', '😍', '👏'];
 
 // --- Componente de Comentario ---
 const CommentCard = ({ comment, onLike, currentUserId }: { comment: Comment, onLike: (commentId: string) => void, currentUserId?: string }) => {
@@ -118,31 +118,75 @@ export const PostDetailModal = ({ visible, onClose, post, onPostUpdate }: { visi
     }, [post, user]);
 
     const handleLikePost = async () => {
-        if (!user || !post) { promptLogin(); return; }
-        const postRef = doc(db, "posts", post.id);
+        if (!user || !post) {
+            promptLogin();
+            return;
+        }
+
+        const originalIsLiked = isLiked;
+        const originalLikeCount = likeCount;
         const newIsLiked = !isLiked;
+        const newLikeCount = newIsLiked ? likeCount + 1 : likeCount - 1;
+
+        // Actualización optimista de la UI
+        setIsLiked(newIsLiked);
+        setLikeCount(newLikeCount);
+
         try {
-            await updateDoc(postRef, { likes: newIsLiked ? arrayUnion(user.uid) : arrayRemove(user.uid) });
+            const postRef = doc(db, "posts", post.id);
+            await updateDoc(postRef, {
+                likes: newIsLiked ? arrayUnion(user.uid) : arrayRemove(user.uid)
+            });
             onPostUpdate();
-        } catch (error) { Alert.alert("Error", "No se pudo procesar el 'Me gusta'."); }
+        } catch (error) {
+            // Si hay un error, revierte los cambios en la UI
+            setIsLiked(originalIsLiked);
+            setLikeCount(originalLikeCount);
+            Alert.alert("Error", "No se pudo procesar el 'Me gusta'.");
+        }
     };
 
     const handleLikeComment = async (commentId: string) => {
-        if (!user || !post) { promptLogin(); return; }
-        const commentRef = doc(db, "posts", post.id, "comments", commentId);
-        const comment = comments.find(c => c.id === commentId);
-        if(!comment) return;
+        if (!user || !post) {
+            promptLogin();
+            return;
+        }
+
+        const originalComments = [...comments];
+        const commentIndex = comments.findIndex(c => c.id === commentId);
+        if (commentIndex === -1) return;
+
+        const comment = comments[commentIndex];
         const isCommentLiked = comment.likes?.includes(user.uid);
+        const newLikes = isCommentLiked
+            ? (comment.likes || []).filter(uid => uid !== user.uid)
+            : [...(comment.likes || []), user.uid];
+
+        const updatedComments = [...comments];
+        updatedComments[commentIndex] = {
+            ...comment,
+            likes: newLikes
+        };
+
+        // Actualización optimista
+        setComments(updatedComments);
+
         try {
-            await updateDoc(commentRef, { likes: isCommentLiked ? arrayRemove(user.uid) : arrayUnion(user.uid) });
+            const commentRef = doc(db, "posts", post.id, "comments", commentId);
+            await updateDoc(commentRef, { likes: newLikes ? arrayUnion(user.uid) : arrayRemove(user.uid) });
         } catch (error) {
+            // Revertir en caso de error
+            setComments(originalComments);
             console.error(error);
-            Alert.alert("Error", "No se pudo dar 'Me gusta' al comentario."); 
+            Alert.alert("Error", "No se pudo dar 'Me gusta' al comentario.");
         }
     };
     
     const handleAddComment = async () => {
-        if (!user || !post || !newComment.trim()) { promptLogin(); return; }
+        if (!user || !post || !newComment.trim()) {
+            if (!user) promptLogin();
+            return;
+        }
         setIsSubmitting(true);
         try {
             const commentsRef = collection(db, "posts", post.id, "comments");
@@ -158,6 +202,7 @@ export const PostDetailModal = ({ visible, onClose, post, onPostUpdate }: { visi
             setShowEmojiPicker(false);
             Keyboard.dismiss();
             setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
+            onPostUpdate(); // Actualizar el conteo de comentarios en la vista de la comunidad
         } catch (error) { Alert.alert("Error", "No se pudo añadir el comentario."); } 
         finally { setIsSubmitting(false); }
     };

@@ -6,12 +6,13 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { collection, getDocs } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import ProfilePicture from '../../components/ProfilePicture'; // **Importar ProfilePicture**
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// --- Interfaces ---
+// --- Interfaces (sin cambios) ---
 interface WeatherData {
   location: { name: string; localtime: string; };
   current: { temp_c: number; condition: { text: string; }; };
@@ -81,31 +82,77 @@ const RecipeModal = ({ visible, onClose, recipe }: { visible: boolean, onClose: 
     );
 };
 
-// --- Componente de la Tarjeta de Sugerencia (Rediseñado) ---
+// --- Componente de Sugerencia para Usuario Logueado ---
 const DailySuggestion = ({ weather, suggestion, loading, errorMsg, onPress }: DailySuggestionProps) => {
-    const handlePress = () => { if (suggestion?.recipe) { onPress(suggestion.recipe); } };
+    if (loading) {
+        return (
+            <View style={[styles.suggestionCard, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator color={Colors.theme.primary} size="large" />
+            </View>
+        );
+    }
+
+    if (errorMsg || !suggestion?.recipe) {
+        return (
+            <View style={[styles.suggestionCard, { justifyContent: 'center', alignItems: 'center' }]}>
+                <FontAwesome name="exclamation-triangle" size={40} color={Colors.theme.grey} />
+                <Text style={styles.errorText}>{errorMsg || 'No hay sugerencias por ahora.'}</Text>
+            </View>
+        );
+    }
+    
+    const { recipe } = suggestion;
+    const imageUrl = recipe?.image || 'https://placehold.co/600x400/FFDDC9/FF5C00?text=🍲';
+
     return (
-        <View style={styles.suggestionOuterContainer}>
-            <TouchableOpacity onPress={handlePress} disabled={!suggestion?.recipe} style={styles.suggestionCard}>
-                <LinearGradient colors={[Colors.theme.secondary, Colors.theme.primary]} style={styles.suggestionGradient}>
-                    {loading ? (<ActivityIndicator color={Colors.theme.textLight} size="large" />)
-                    : errorMsg ? (<Text style={styles.errorText}>{errorMsg}</Text>)
-                    : weather && suggestion ? (
-                        <>
-                            <View style={styles.weatherContainer}>
-                                <FontAwesome name="map-marker" size={16} color={Colors.theme.textLight} />
-                                <Text style={styles.locationText}>{weather.location.name}</Text>
-                                <Text style={styles.temperatureText}>{Math.round(weather.current.temp_c)}°C</Text>
-                            </View>
-                            <Text style={styles.suggestionDish}>{suggestion.icon} {suggestion.dish}</Text>
-                            <Text style={styles.suggestionReason}>{suggestion.reason}</Text>
-                        </>
-                    ) : null}
+        <TouchableOpacity onPress={() => onPress(recipe)} style={styles.suggestionCard}>
+            <ImageBackground source={{ uri: imageUrl }} style={styles.imageBackground} imageStyle={{ borderRadius: 24 }}>
+                <LinearGradient
+                    colors={['rgba(0,0,0,0.8)', 'transparent', 'rgba(0,0,0,0.8)']}
+                    style={styles.gradientOverlay}
+                >
+                    <View style={styles.weatherInfo}>
+                        <FontAwesome name="map-marker" size={16} color="white" />
+                        <Text style={styles.weatherText}>{weather?.location.name}, {Math.round(weather?.current.temp_c ?? 0)}°C</Text>
+                    </View>
+                    
+                    <View style={styles.recipeDetails}>
+                        <Text style={styles.recipeCategory}>{recipe.category}</Text>
+                        <Text style={styles.recipeTitle}>{suggestion.dish}</Text>
+                        <Text style={styles.recipeReason}>{suggestion.reason}</Text>
+                    </View>
                 </LinearGradient>
-            </TouchableOpacity>
+            </ImageBackground>
+        </TouchableOpacity>
+    );
+};
+
+// --- Componente de Sugerencia para Invitados ---
+const GuestSuggestionCard = () => {
+    const router = useRouter();
+    return (
+        <View style={styles.suggestionCard}>
+            <ImageBackground 
+                source={require('../../assets/images/splash-icon.png')} // Imagen de fondo genérica
+                style={styles.imageBackground} 
+                imageStyle={{ borderRadius: 24, opacity: 0.1 }}
+                resizeMode="cover"
+            >
+                <View style={[styles.gradientOverlay, { backgroundColor: 'rgba(248, 249, 250, 0.8)'}]}>
+                    <View style={styles.guestContent}>
+                        <FontAwesome name="lock" size={40} color={Colors.theme.primary} />
+                        <Text style={styles.guestTitle}>Desbloquea tu Sugerencia Diaria</Text>
+                        <Text style={styles.guestSubtitle}>Regístrate para ver esta y muchas más funciones personalizadas.</Text>
+                        <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/(auth)/login')}>
+                            <Text style={styles.loginButtonText}>Iniciar Sesión o Registrarse</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </ImageBackground>
         </View>
     );
 };
+
 
 // --- Componente de la Pantalla Principal ---
 export default function HomeScreen() {
@@ -120,14 +167,6 @@ export default function HomeScreen() {
 
     const handleOpenModal = (recipe: Recipe) => { setSelectedRecipe(recipe); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedRecipe(null); };
-
-    const handleProfilePress = () => {
-        if (user) {
-            router.push('./profile');
-        } else {
-            router.push('/(auth)/login');
-        }
-    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -172,149 +211,226 @@ export default function HomeScreen() {
 
     const getGreeting = () => {
         const hour = new Date().getHours();
-        if (hour < 12) return `Buenos días, ${user?.name || ''}`;
-        if (hour < 20) return `Buenas tardes, ${user?.name || ''}`;
-        return `Buenas noches, ${user?.name || ''}`;
+        if (hour < 12) return `Buenos días`;
+        if (hour < 20) return `Buenas tardes`;
+        return `Buenas noches`;
     };
+    
+    const userTitle = user?.badges && user.badges.length > 0 ? user.badges[user.badges.length - 1] : null;
 
     return (
-        <ScrollView style={styles.container}>
-            <StatusBar style="dark" />
-            <View style={styles.header}>
-                <View>
-                    <Text style={styles.greeting}>{getGreeting()}</Text>
-                    <Text style={styles.title}>Mi Sazón</Text>
+        <SafeAreaView style={styles.safeArea}>
+            <ScrollView style={styles.container}>
+                <StatusBar style="dark" />
+                <View style={styles.header}>
+                    <View>
+                        <Text style={styles.greeting}>{getGreeting()}{user ? `, ${user.name}` : '!'}</Text>
+                        {user && userTitle && (
+                            <View style={styles.titleBadge}>
+                                <FontAwesome name="trophy" size={14} color="#D4AF37" />
+                                <Text style={styles.userTitle}>{userTitle}</Text>
+                            </View>
+                        )}
+                    </View>
+                    {user && (
+                        <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
+                            <ProfilePicture
+                                photoURL={user.photoURL}
+                                frameURL={user.equippedFrameUrl}
+                                size={60}
+                            />
+                        </TouchableOpacity>
+                    )}
                 </View>
-                <TouchableOpacity onPress={handleProfilePress}>
-                    <Image source={ user?.photoURL ? { uri: user.photoURL } : require('../../assets/images/logo.png')} style={styles.profileImage} />
-                </TouchableOpacity>
-            </View>
 
-            <DailySuggestion weather={weather} suggestion={suggestion} loading={loading} errorMsg={errorMsg} onPress={handleOpenModal} />
+                {user ? (
+                    <DailySuggestion weather={weather} suggestion={suggestion} loading={loading} errorMsg={errorMsg} onPress={handleOpenModal} />
+                ) : (
+                    <GuestSuggestionCard />
+                )}
 
-            <View style={styles.optionsContainer}>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./discover')}>
-                    <FontAwesome name="search" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Descubrir</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./planner')}>
-                    <FontAwesome name="calendar" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Planificador</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./pantry')}>
-                    <FontAwesome name="shopping-basket" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Mi Despensa</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./map')}>
-                    <FontAwesome name="map-marker" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Mapa</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./historial')}>
-                    <FontAwesome name="history" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Historial</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./favorites')}>
-                    <FontAwesome name="star" size={24} color={Colors.theme.primary} />
-                    <Text style={styles.optionText}>Favoritos</Text>
-                </TouchableOpacity>
-            </View>
-            
-            <RecipeModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />
-        </ScrollView>
+                <View style={styles.optionsContainer}>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./discover')}>
+                        <FontAwesome name="search" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Descubrir</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./planner')}>
+                        <FontAwesome name="calendar" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Planificador</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./pantry')}>
+                        <FontAwesome name="shopping-basket" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Mi Despensa</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./map')}>
+                        <FontAwesome name="map-marker" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Mapa</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./historial')}>
+                        <FontAwesome name="history" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Historial</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./favorites')}>
+                        <FontAwesome name="star" size={24} color={Colors.theme.primary} />
+                        <Text style={styles.optionText}>Favoritos</Text>
+                    </TouchableOpacity>
+                </View>
+                
+                <RecipeModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 // --- Estilos ---
 const styles = StyleSheet.create({
-    container: {
+    safeArea: {
         flex: 1,
         backgroundColor: Colors.theme.background,
-        paddingTop: 60,
+    },
+    container: {
+        flex: 1,
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        marginBottom: 20,
+        paddingTop: 50,
+        paddingBottom: 20,
     },
     greeting: {
-        fontSize: 16,
+        fontSize: 18,
         color: Colors.theme.grey,
     },
     title: {
-        fontSize: 32,
+        fontSize: 34,
         fontWeight: 'bold',
         color: Colors.theme.text,
+        marginTop: -5,
     },
-    profileImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-    },
-    suggestionOuterContainer: {
-        paddingHorizontal: 20,
-        shadowColor: Colors.theme.shadow,
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 20,
-        elevation: 15,
-        marginBottom: 30,
-    },
-    suggestionCard: {
-        borderRadius: 24,
-        overflow: 'hidden',
-    },
-    suggestionGradient: {
-        padding: 25,
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 180,
-    },
-    weatherContainer: {
-        position: 'absolute',
-        top: 15,
-        left: 20,
+    titleBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        paddingVertical: 5,
-        paddingHorizontal: 10,
+        backgroundColor: '#FFFBEB',
         borderRadius: 15,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        marginTop: 5,
+        alignSelf: 'flex-start',
     },
-    locationText: {
-        color: Colors.theme.textLight,
+    userTitle: {
+        marginLeft: 6,
+        fontSize: 14,
         fontWeight: '600',
-        marginLeft: 5,
+        color: '#B45309',
     },
-    temperatureText: {
-        color: Colors.theme.textLight,
-        fontWeight: 'bold',
-        marginLeft: 10,
+    // Estilos de la tarjeta de sugerencia
+    suggestionCard: {
+        height: 450,
+        borderRadius: 24,
+        marginHorizontal: 20,
+        marginBottom: 30,
+        backgroundColor: Colors.theme.card, 
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
     },
-    suggestionDish: {
-        fontSize: 25,
-        color: Colors.theme.textLight,
+    imageBackground: {
+        flex: 1,
+        justifyContent: 'space-between',
+    },
+    gradientOverlay: {
+        flex: 1,
+        borderRadius: 24,
+        justifyContent: 'space-between',
+        padding: 20,
+    },
+    weatherInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        alignSelf: 'flex-start',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+    },
+    weatherText: {
+        color: 'white',
         fontWeight: 'bold',
-        textAlign: 'center',
-        textShadowColor: 'rgba(0, 0, 0, 0.15)',
-        textShadowOffset: { width: 0, height: 2 },
+        marginLeft: 8,
+    },
+    recipeDetails: {},
+    recipeCategory: {
+        color: '#eee',
+        fontWeight: 'bold',
+        fontSize: 16,
+        textShadowColor: 'rgba(0, 0, 0, 0.5)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
+    },
+    recipeTitle: {
+        fontSize: 36,
+        color: 'white',
+        fontWeight: 'bold',
+        lineHeight: 40,
+        textShadowColor: 'rgba(0, 0, 0, 0.7)',
+        textShadowOffset: { width: 2, height: 2 },
         textShadowRadius: 3,
     },
-    suggestionReason: {
+    recipeReason: {
         fontSize: 16,
-        color: Colors.theme.textLight,
+        color: 'white',
         fontStyle: 'italic',
-        textAlign: 'center',
-        marginTop: 8,
-        opacity: 0.9,
+        marginTop: 4,
+        textShadowColor: 'rgba(0, 0, 0, 0.5)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
     },
     errorText: {
         fontSize: 16,
-        color: Colors.theme.textLight,
+        color: Colors.theme.grey,
         fontWeight: 'bold',
         textAlign: 'center',
+        marginTop: 10,
     },
+    // Estilos para la tarjeta de invitado
+    guestContent: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(248, 249, 250, 0.8)',
+        borderRadius: 24,
+        padding: 20,
+    },
+    guestTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: Colors.theme.text,
+        textAlign: 'center',
+        marginTop: 15,
+    },
+    guestSubtitle: {
+        fontSize: 16,
+        color: Colors.theme.grey,
+        textAlign: 'center',
+        marginTop: 10,
+        marginBottom: 25,
+    },
+    loginButton: {
+        backgroundColor: Colors.theme.primary,
+        paddingVertical: 14,
+        paddingHorizontal: 35,
+        borderRadius: 30,
+    },
+    loginButtonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    // Estilos de los botones de opciones
     optionsContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
