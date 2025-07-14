@@ -3,8 +3,22 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, getDocs, limit, query, serverTimestamp, where } from 'firebase/firestore';
 import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import { Colors } from '../constants/Colors';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebaseConfig';
@@ -24,6 +38,10 @@ export default function CreatePostScreen() {
     const [description, setDescription] = useState('');
     const [activeDuel, setActiveDuel] = useState<Duel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [participateInDuel, setParticipateInDuel] = useState(true);
+
+    const descriptionInputRef = useRef<TextInput>(null);
+    const scrollViewRef = useRef<ScrollView>(null);
 
     useEffect(() => {
         const fetchActiveDuel = async () => {
@@ -92,8 +110,8 @@ export default function CreatePostScreen() {
                 likes: [],
                 createdAt: serverTimestamp(),
             };
-
-            if (activeDuel) {
+            
+            if (activeDuel && participateInDuel) {
                 postData.duelId = activeDuel.id;
             }
 
@@ -107,6 +125,16 @@ export default function CreatePostScreen() {
             setIsSubmitting(false);
         }
     };
+    
+    // **CORRECCIÓN**: La función ya no recibe un parámetro 'ref'.
+    // En su lugar, utiliza directamente 'descriptionInputRef' del scope del componente.
+    const handleInputFocus = () => {
+        setTimeout(() => {
+             descriptionInputRef.current?.measure((x, y, width, height, pageX, pageY) => {
+                scrollViewRef.current?.scrollTo({ y: pageY - 100, animated: true });
+            });
+        }, 100);
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -114,16 +142,18 @@ export default function CreatePostScreen() {
                 style={{ flex: 1 }}
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
             >
-                <ScrollView contentContainerStyle={styles.scrollContent}>
-                    <Text style={styles.headerTitle}>Crear Publicación</Text>
+                <ScrollView 
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <View style={styles.header}>
+                        <Text style={styles.headerTitle}>Crear Publicación</Text>
+                        <TouchableOpacity onPress={() => router.back()}>
+                            <FontAwesome name="close" size={24} color={Colors.theme.text} />
+                        </TouchableOpacity>
+                    </View>
                     
-                    {activeDuel && (
-                        <View style={styles.duelBanner}>
-                            <FontAwesome name="trophy" size={20} color="#FFC107" />
-                            <Text style={styles.duelText}>¡Estás participando en el duelo: <Text style={{fontWeight: 'bold'}}>{activeDuel.title}</Text>!</Text>
-                        </View>
-                    )}
-
                     <TouchableOpacity style={styles.imagePicker} onPress={handlePickImage}>
                         {image ? (
                             <Image source={{ uri: image }} style={styles.imagePreview} />
@@ -151,14 +181,35 @@ export default function CreatePostScreen() {
                         placeholder="Título de tu plato..."
                         value={title}
                         onChangeText={setTitle}
+                        returnKeyType="next"
+                        onSubmitEditing={() => descriptionInputRef.current?.focus()}
                     />
                     <TextInput
+                        ref={descriptionInputRef}
+                        // **CORRECCIÓN**: La llamada a la función ya no pasa argumentos.
+                        onFocus={handleInputFocus}
                         style={[styles.input, styles.textArea]}
                         placeholder="Añade una descripción..."
                         value={description}
                         onChangeText={setDescription}
                         multiline
                     />
+
+                    {activeDuel && (
+                        <View style={styles.duelContainer}>
+                            <View style={styles.duelTextContainer}>
+                                <FontAwesome name="trophy" size={20} color="#FFC107" />
+                                <Text style={styles.duelText}>Participar en: <Text style={{fontWeight: 'bold'}}>{activeDuel.title}</Text></Text>
+                            </View>
+                            <Switch
+                                trackColor={{ false: "#767577", true: Colors.theme.accent }}
+                                thumbColor={participateInDuel ? "#f4f3f4" : "#f4f3f4"}
+                                ios_backgroundColor="#3e3e3e"
+                                onValueChange={setParticipateInDuel}
+                                value={participateInDuel}
+                            />
+                        </View>
+                    )}
 
                     <TouchableOpacity 
                         style={[styles.shareButton, (!image || !title.trim()) && styles.shareButtonDisabled]} 
@@ -179,10 +230,14 @@ export default function CreatePostScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.theme.background },
-    scrollContent: { padding: 20, paddingBottom: 40 }, // Added more padding to the bottom
-    headerTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-    duelBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFBEB', padding: 15, borderRadius: 10, marginBottom: 20 },
-    duelText: { marginLeft: 10, fontSize: 15, color: '#B45309' },
+    scrollContent: { flexGrow: 1, padding: 20, paddingBottom: 40 },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    headerTitle: { fontSize: 28, fontWeight: 'bold' },
     imagePicker: { width: '100%', height: 300, backgroundColor: '#f0f2f5', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 15, overflow: 'hidden' },
     imagePreview: { width: '100%', height: '100%' },
     imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
@@ -192,6 +247,21 @@ const styles = StyleSheet.create({
     actionButtonText: { marginLeft: 10, fontWeight: '600', color: Colors.theme.primary },
     input: { backgroundColor: Colors.theme.card, padding: 15, borderRadius: 10, fontSize: 16, marginBottom: 15, borderWidth: 1, borderColor: '#eee' },
     textArea: { height: 100, textAlignVertical: 'top' },
+    duelContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#FFFBEB',
+        padding: 15,
+        borderRadius: 10,
+        marginBottom: 20,
+    },
+    duelTextContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    duelText: { marginLeft: 10, fontSize: 15, color: '#B45309', marginRight: 10 },
     shareButton: { backgroundColor: Colors.theme.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
     shareButtonDisabled: { backgroundColor: Colors.theme.grey },
     shareButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },

@@ -1,10 +1,12 @@
 import { FontAwesome } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { collection, deleteDoc, doc, getDocs, orderBy, query, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, limit, orderBy, query, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { deleteObject, getStorage, ref } from 'firebase/storage';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { EditProfileModal } from '../../components/EditProfileModal';
+import { FriendsModal } from '../../components/FriendsModal'; // **Importar el nuevo modal**
 import { PostDetailModal } from '../../components/PostDetailModal';
 import ProfilePicture from '../../components/ProfilePicture';
 import { Colors } from '../../constants/Colors';
@@ -21,15 +23,17 @@ interface Post {
     authorName: string;
     authorPhoto: string;
     description?: string;
+    duelId?: string;
 }
 interface Frame { name: string; url: string; }
+interface Duel { id: string; title: string; }
 
 // --- Componentes ---
-const ProfilePostCard = ({ item, onPress, onDelete }: { item: Post, onPress: () => void, onDelete: () => void }) => (
-    <TouchableOpacity style={styles.postItem} onPress={onPress}>
+const ProfilePostCard = ({ item, onPress, onOpenMenu }: { item: Post, onPress: () => void, onOpenMenu: () => void }) => (
+    <TouchableOpacity style={styles.postItem} onPress={onPress} onLongPress={onOpenMenu}>
         <Image source={{ uri: item.image }} style={styles.postImage} />
-        <TouchableOpacity style={styles.deleteIcon} onPress={onDelete}>
-            <FontAwesome name="trash" size={18} color="white" />
+        <TouchableOpacity style={styles.menuIcon} onPress={onOpenMenu}>
+            <FontAwesome name="ellipsis-v" size={20} color="white" />
         </TouchableOpacity>
     </TouchableOpacity>
 );
@@ -43,8 +47,13 @@ export default function ProfileScreen() {
     const [selectedPost, setSelectedPost] = useState<Post | null>(null);
     const [activeTab, setActiveTab] = useState<'posts' | 'badges' | 'frames'>('posts');
     const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+    const [isMenuVisible, setIsMenuVisible] = useState(false);
+    const [selectedPostForMenu, setSelectedPostForMenu] = useState<Post | null>(null);
+    const [activeDuel, setActiveDuel] = useState<Duel | null>(null);
     const [hasNewBadges, setHasNewBadges] = useState(false);
     const [hasNewFrames, setHasNewFrames] = useState(false);
+    const [isFriendsModalVisible, setIsFriendsModalVisible] = useState(false); // **Nuevo estado**
+    const [friendsModalInitialTab, setFriendsModalInitialTab] = useState<'following' | 'followers' | 'search'>('search'); // **Nuevo estado**
 
     const loadProfileData = useCallback(async () => {
         if (!user) { 
@@ -54,10 +63,23 @@ export default function ProfileScreen() {
         setLoadingPosts(true);
         try {
             await fetchUserProfile(user.uid);
+            // Fetch Posts
             const postsRef = collection(db, "posts");
-            const q = query(postsRef, where("authorId", "==", user.uid), orderBy("createdAt", "desc"));
-            const querySnapshot = await getDocs(q);
-            setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[]);
+            const qPosts = query(postsRef, where("authorId", "==", user.uid), orderBy("createdAt", "desc"));
+            const postsSnapshot = await getDocs(qPosts);
+            setUserPosts(postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[]);
+
+            // Fetch Active Duel
+            const duelsRef = collection(db, "duels");
+            const qDuels = query(duelsRef, where("isActive", "==", true), limit(1));
+            const duelSnapshot = await getDocs(qDuels);
+            if (!duelSnapshot.empty) {
+                const duelDoc = duelSnapshot.docs[0];
+                setActiveDuel({ id: duelDoc.id, ...duelDoc.data() } as Duel);
+            } else {
+                setActiveDuel(null);
+            }
+
         } catch (error) { 
             console.error("Error fetching profile data:", error); 
         } finally { 
@@ -105,7 +127,16 @@ export default function ProfileScreen() {
         } catch (error) { Alert.alert("Error", "No se pudo equipar el marco."); }
     };
 
-    const handleDeletePost = async (postId: string, imageUrl: string) => {
+    const handleOpenMenu = (post: Post) => {
+        setSelectedPostForMenu(post);
+        setIsMenuVisible(true);
+    };
+
+    const handleDeletePost = async () => {
+        if (!selectedPostForMenu) return;
+        const { id: postId, image: imageUrl } = selectedPostForMenu;
+        setIsMenuVisible(false);
+
         Alert.alert(
             "Confirmar Eliminación",
             "¿Estás seguro de que quieres eliminar esta publicación?",
@@ -135,39 +166,125 @@ export default function ProfileScreen() {
         );
     };
 
+    const handleLeaveDuel = async () => {
+        if (!selectedPostForMenu) return;
+        const { id: postId } = selectedPostForMenu;
+        setIsMenuVisible(false);
+
+        Alert.alert(
+            "Dejar Duelo",
+            "¿Seguro que quieres retirar esta publicación del duelo?",
+            [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Sí, retirar", style: "destructive", onPress: async () => {
+                    try {
+                        const postRef = doc(db, "posts", postId);
+                        await updateDoc(postRef, {
+                            duelId: null
+                        });
+                        Alert.alert("Éxito", "La publicación ya no participa en el duelo.");
+                        loadProfileData();
+                    } catch (error) {
+                        console.error("Error leaving duel: ", error);
+                        Alert.alert("Error", "No se pudo retirar la publicación del duelo.");
+                    }
+                }}
+            ]
+        );
+    };
+
+    const handleJoinDuel = async () => {
+        if (!selectedPostForMenu || !activeDuel) return;
+        const { id: postId } = selectedPostForMenu;
+        setIsMenuVisible(false);
+
+        Alert.alert(
+            "Unirse al Duelo",
+            `¿Quieres que esta publicación participe en el duelo "${activeDuel.title}"?`,
+            [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Sí, unirme", onPress: async () => {
+                    try {
+                        const postRef = doc(db, "posts", postId);
+                        await updateDoc(postRef, {
+                            duelId: activeDuel.id
+                        });
+                        Alert.alert("¡Éxito!", "Tu publicación ahora está participando en el duelo.");
+                        loadProfileData();
+                    } catch (error) {
+                        console.error("Error joining duel: ", error);
+                        Alert.alert("Error", "No se pudo unir la publicación al duelo.");
+                    }
+                }}
+            ]
+        );
+    };
+    
+    const handleEditPost = () => {
+        setIsMenuVisible(false);
+        Alert.alert("Editar Publicación", "Esta función se implementará pronto.");
+    };
+
+    const openFriendsModal = (tab: 'following' | 'followers' | 'search') => {
+        setFriendsModalInitialTab(tab);
+        setIsFriendsModalVisible(true);
+    };
+
     if (!user) {
         return <SafeAreaView style={styles.loadingContainer}><Text style={styles.emptyText}>Inicia sesión para ver tu perfil.</Text></SafeAreaView>;
     }
+    
+    const userTitle = user.badges && user.badges.length > 0 ? user.badges[user.badges.length - 1] : null;
 
     return (
         <SafeAreaView style={styles.container}>
             <FlatList
                 ListHeaderComponent={
                     <>
-                        <View style={styles.headerContainer}>
-                            <ProfilePicture 
-                                photoURL={user.photoURL}
-                                frameURL={user.equippedFrameUrl}
-                                size={screenWidth * 0.3}
-                                borderColor={Colors.theme.primary}
-                                borderWidth={4}
-                            />
-                            <Text style={styles.name}>{user.name} {user.lastName}</Text>
-                            {user.description ? <Text style={styles.description}>{user.description}</Text> : null}
-                            <View style={styles.statsContainer}>
-                                <View style={styles.stat}><Text style={styles.statNumber}>{userPosts.length}</Text><Text style={styles.statLabel}>Posts</Text></View>
-                                <View style={styles.statSeparator} />
-                                <View style={styles.stat}><Text style={styles.statNumber}>{user.followersCount || 0}</Text><Text style={styles.statLabel}>Seguidores</Text></View>
-                                <View style={styles.statSeparator} />
-                                <View style={styles.stat}><Text style={styles.statNumber}>{user.followingCount || 0}</Text><Text style={styles.statLabel}>Siguiendo</Text></View>
+                        <LinearGradient
+                            colors={[Colors.theme.secondary, Colors.theme.primary]}
+                            style={styles.headerGradient}
+                        >
+                            <View style={styles.headerContainer}>
+                                <ProfilePicture 
+                                    photoURL={user.photoURL}
+                                    frameURL={user.equippedFrameUrl}
+                                    size={screenWidth * 0.25}
+                                />
+                                <Text style={styles.name}>{user.name} {user.lastName}</Text>
+                                <Text style={styles.nickname}>@{user.nickname}</Text>
+                                {user.description ? <Text style={styles.description}>{user.description}</Text> : null}
+                                {userTitle && (
+                                    <View style={styles.titleBadge}>
+                                        <FontAwesome name="trophy" size={14} color="#D4AF37" />
+                                        <Text style={styles.userTitle}>{userTitle}</Text>
+                                    </View>
+                                )}
+                                <View style={styles.statsContainer}>
+                                    <View style={styles.stat}><Text style={styles.statNumber}>{userPosts.length}</Text><Text style={styles.statLabel}>Posts</Text></View>
+                                    <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('followers')}>
+                                        <Text style={styles.statNumber}>{user.followersCount || 0}</Text>
+                                        <Text style={styles.statLabel}>Seguidores</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('following')}>
+                                        <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
+                                        <Text style={styles.statLabel}>Siguiendo</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.buttonRow}>
+                                    <TouchableOpacity style={[styles.profileButton, styles.editButton]} onPress={() => setIsEditModalVisible(true)}>
+                                        <Text style={styles.buttonText}>Editar Perfil</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.profileButton, styles.iconButton]} onPress={() => openFriendsModal('search')}>
+                                        <FontAwesome name="user-plus" size={16} color={Colors.theme.primary} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.profileButton, styles.iconButton]} onPress={logout}>
+                                        <FontAwesome name="sign-out" size={16} color={Colors.theme.primary} />
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                            <View style={styles.buttonRow}>
-                                <TouchableOpacity style={[styles.profileButton, styles.editButton]} onPress={() => setIsEditModalVisible(true)}>
-                                    <Text style={styles.buttonText}>Editar Perfil</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={[styles.profileButton, styles.logoutButton]} onPress={logout}><FontAwesome name="sign-out" size={16} color={Colors.theme.grey} /></TouchableOpacity>
-                            </View>
-                        </View>
+                        </LinearGradient>
+
                         <View style={styles.tabContainer}>
                             <TouchableOpacity onPress={() => handleTabChange('posts')} style={[styles.tabButton, activeTab === 'posts' && styles.tabButtonActive]}><FontAwesome name="th" size={20} color={activeTab === 'posts' ? Colors.theme.primary : Colors.theme.grey} /></TouchableOpacity>
                             <TouchableOpacity onPress={() => handleTabChange('badges')} style={[styles.tabButton, activeTab === 'badges' && styles.tabButtonActive]}>
@@ -183,12 +300,13 @@ export default function ProfileScreen() {
                                 </View>
                             </TouchableOpacity>
                         </View>
+                       
                     </>
                 }
                 data={activeTab === 'posts' ? userPosts : []}
                 numColumns={3}
                 keyExtractor={item => item.id}
-                renderItem={({ item }) => <ProfilePostCard item={item} onPress={() => setSelectedPost(item)} onDelete={() => handleDeletePost(item.id, item.image)} />}
+                renderItem={({ item }) => <ProfilePostCard item={item} onPress={() => setSelectedPost(item)} onOpenMenu={() => handleOpenMenu(item)} />}
                 ListFooterComponent={
                     <View>
                         {loadingPosts && activeTab === 'posts' && <ActivityIndicator style={{ margin: 20 }} color={Colors.theme.primary} />}
@@ -201,13 +319,14 @@ export default function ProfileScreen() {
                         )}
                         {activeTab === 'frames' && (
                             <View style={styles.itemsSection}>
-                                {(user.frames && user.frames.length > 0) ? user.frames.map((frame, index) => (
-                                    <TouchableOpacity key={index} style={styles.frameItem} onPress={() => handleEquipFrame(frame.url)}>
-                                        <Image source={{ uri: frame.url }} style={styles.framePreview} />
-                                        <Text style={styles.frameName}>{frame.name}</Text>
-                                        {user.equippedFrameUrl === frame.url && <View style={styles.equippedIndicator}><FontAwesome name="check-circle" size={24} color={Colors.theme.accent} /></View>}
-                                    </TouchableOpacity>
-                                )) : <View style={styles.emptyContainer}><Text style={styles.emptyText}>Aún no has ganado marcos.</Text></View>}
+                                <Text style={styles.sectionTitle}>Mis Marcos</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.framesScrollView}>
+                                    {(user.frames && user.frames.length > 0) ? user.frames.map((frame, index) => (
+                                        <TouchableOpacity key={index} style={[styles.frameItem, user.equippedFrameUrl === frame.url && styles.frameItemSelected]} onPress={() => handleEquipFrame(frame.url)}>
+                                            <Image source={{ uri: frame.url }} style={styles.framePreview} />
+                                        </TouchableOpacity>
+                                    )) : <View style={styles.emptyContainer}><Text style={styles.emptyText}>Aún no has ganado marcos.</Text></View>}
+                                </ScrollView>
                             </View>
                         )}
                     </View>
@@ -223,6 +342,43 @@ export default function ProfileScreen() {
                 onClose={() => setIsEditModalVisible(false)}
                 onProfileUpdate={loadProfileData}
             />
+            <FriendsModal 
+                visible={isFriendsModalVisible}
+                onClose={() => setIsFriendsModalVisible(false)}
+                initialTab={friendsModalInitialTab}
+            />
+            <Modal
+                transparent={true}
+                visible={isMenuVisible}
+                animationType="fade"
+                onRequestClose={() => setIsMenuVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
+                    <View style={styles.menuOverlay}>
+                        <View style={styles.menuContainer}>
+                            <TouchableOpacity style={styles.menuOption} onPress={handleEditPost}>
+                                <FontAwesome name="pencil" size={20} color={Colors.theme.text} />
+                                <Text style={styles.menuOptionText}>Editar Publicación</Text>
+                            </TouchableOpacity>
+                            {selectedPostForMenu?.duelId ? (
+                                <TouchableOpacity style={styles.menuOption} onPress={handleLeaveDuel}>
+                                    <FontAwesome name="trophy" size={20} color={Colors.theme.text} />
+                                    <Text style={styles.menuOptionText}>Dejar de participar en el duelo</Text>
+                                </TouchableOpacity>
+                            ) : activeDuel && (
+                                <TouchableOpacity style={styles.menuOption} onPress={handleJoinDuel}>
+                                    <FontAwesome name="trophy" size={20} color={Colors.theme.accent} />
+                                    <Text style={[styles.menuOptionText, { color: Colors.theme.accent }]}>Participar en el duelo</Text>
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity style={[styles.menuOption, { borderBottomWidth: 0 }]} onPress={handleDeletePost}>
+                                <FontAwesome name="trash" size={20} color={Colors.theme.primary} />
+                                <Text style={[styles.menuOptionText, { color: Colors.theme.primary }]}>Eliminar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -232,35 +388,95 @@ const screenWidth = Dimensions.get('window').width;
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.theme.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    headerContainer: { alignItems: 'center', paddingTop: 60, paddingBottom: 20, backgroundColor: Colors.theme.card, paddingHorizontal: 20 },
-    name: { fontSize: 22, fontWeight: 'bold', color: Colors.theme.text, marginTop: 10 },
-    description: { fontSize: 14, color: Colors.theme.grey, textAlign: 'center', marginTop: 5, marginBottom: 15 },
-    statsContainer: { flexDirection: 'row', marginBottom: 25 },
+    headerGradient: {
+        paddingTop: 40,
+        paddingBottom: 20,
+    },
+    headerContainer: { alignItems: 'center', paddingHorizontal: 20  },
+    name: { fontSize: 24, fontWeight: 'bold', color: 'white', marginTop: 15, textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 2 },
+    nickname: { fontSize: 16, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+    titleBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        borderRadius: 15,
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        marginTop: 8,
+    },
+    userTitle: {
+        marginLeft: 6,
+        fontSize: 15,
+        fontWeight: '600',
+        color: 'white',
+    },
+    description: { fontSize: 12, color: Colors.theme.textLight, textAlign: 'center', marginTop: 15, paddingHorizontal: 20 },
+    statsContainer: { flexDirection: 'row', marginTop: 20, marginBottom: 20 },
     stat: { alignItems: 'center', paddingHorizontal: 20 },
-    statNumber: { fontSize: 18, fontWeight: 'bold', color: Colors.theme.text },
-    statLabel: { fontSize: 14, color: Colors.theme.grey, marginTop: 4 },
-    statSeparator: { width: 1, backgroundColor: '#e0e0e0' },
+    statNumber: { fontSize: 18, fontWeight: 'bold', color: 'white' },
+    statLabel: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+    statSeparator: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
     buttonRow: { flexDirection: 'row', alignItems: 'center' },
     profileButton: { justifyContent: 'center', alignItems: 'center', borderRadius: 8, marginHorizontal: 5 },
-    buttonText: { fontWeight: 'bold', fontSize: 14, color: Colors.theme.text },
-    editButton: { backgroundColor: '#e5e5e5', paddingVertical: 10, paddingHorizontal: 30 },
-    logoutButton: { backgroundColor: '#e5e5e5', padding: 10, width: 40, height: 40, borderRadius: 20 },
+    buttonText: { fontWeight: 'bold', fontSize: 14, color: Colors.theme.primary },
+    editButton: { backgroundColor: 'white', paddingVertical: 10, paddingHorizontal: 30 },
+    iconButton: { backgroundColor: 'white', padding: 10, width: 40, height: 40, borderRadius: 20 },
     tabContainer: { flexDirection: 'row', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: '#e0e0e0', backgroundColor: Colors.theme.card },
     tabButton: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
     tabButtonActive: { borderBottomColor: Colors.theme.primary },
     newIndicator: { position: 'absolute', top: -2, right: -8, width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.theme.primary, borderWidth: 1.5, borderColor: Colors.theme.card },
-    postItem: { width: (screenWidth / 3) - 2, height: (screenWidth / 3) - 2, margin: 1, position: 'relative' },
+    postItem: { width: (screenWidth / 3), height: (screenWidth / 3), position: 'relative' },
     postImage: { width: '100%', height: '100%' },
-    deleteIcon: { position: 'absolute', top: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 15 },
+    menuIcon: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 5, paddingHorizontal: 8, borderRadius: 15 },
     emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
     emptyText: { fontSize: 16, color: Colors.theme.grey, textAlign: 'center' },
     itemsSection: { padding: 20 },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
     badgeItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.theme.card, padding: 15, borderRadius: 10, marginBottom: 10, elevation: 2 },
     badgeEmoji: { fontSize: 30, marginRight: 15 },
     badgeText: { fontSize: 16, fontWeight: '600', color: Colors.theme.text },
-    frameItem: { backgroundColor: Colors.theme.card, borderRadius: 10, marginBottom: 15, padding: 10, alignItems: 'center', elevation: 2 },
-    framePreview: { width: 100, height: 100, resizeMode: 'contain' },
-    frameName: { fontWeight: '600', marginTop: 5 },
-    equippedIndicator: { position: 'absolute', top: 5, right: 5 },
+    framesScrollView: { paddingVertical: 10 },
+    frameItem: { 
+        width: 100,
+        height: 100,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 15,
+        borderRadius: 50,
+        borderWidth: 3,
+        borderColor: 'transparent',
+    },
+    frameItemSelected: {
+        borderColor: Colors.theme.accent,
+    },
+    framePreview: { 
+        width: 90, 
+        height: 90, 
+        resizeMode: 'contain',
+    },
     fab: { position: 'absolute', width: 56, height: 56, alignItems: 'center', justifyContent: 'center', right: 20, bottom: 20, backgroundColor: Colors.theme.primary, borderRadius: 28, elevation: 8, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
+    menuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    menuContainer: {
+        backgroundColor: 'white',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 10,
+    },
+    menuOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 15,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+    },
+    menuOptionText: {
+        marginLeft: 15,
+        fontSize: 16,
+        color: Colors.theme.text,
+    },
 });

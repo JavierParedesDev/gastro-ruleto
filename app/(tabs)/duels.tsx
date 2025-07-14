@@ -1,8 +1,8 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import ProfilePicture from '../../components/ProfilePicture';
 import { Colors } from '../../constants/Colors';
@@ -46,25 +46,51 @@ interface TimeLeft {
     minutos?: number;
 }
 
+// --- Componente para ver la imagen en pantalla completa ---
+const ImageModal = ({ visible, imageUrl, onClose }: { visible: boolean, imageUrl: string | null, onClose: () => void }) => {
+    if (!imageUrl) return null;
+    return (
+        <Modal
+            animationType="fade"
+            transparent={true}
+            visible={visible}
+            onRequestClose={onClose}
+        >
+            <View style={styles.imageModalContainer}>
+                <Image source={{ uri: imageUrl }} style={styles.fullScreenImage} resizeMode="contain" />
+                <TouchableOpacity style={styles.closeModalButton} onPress={onClose}>
+                    <FontAwesome name="close" size={30} color="white" />
+                </TouchableOpacity>
+            </View>
+        </Modal>
+    );
+};
 
-// --- Componentes (con un nuevo componente para la lista de participantes) ---
-const ParticipantRow = ({ item }: { item: Post }) => (
-    <Animated.View entering={FadeInDown.duration(300)} style={styles.participantRow}>
-        <Image source={{ uri: item.image }} style={styles.participantRowImage} />
-        <View style={styles.participantRowInfo}>
-            <Text style={styles.participantRowName} numberOfLines={1}>{item.title}</Text>
-            <Text style={styles.participantRowAuthor} numberOfLines={1}>Por: {item.authorName}</Text>
-        </View>
-        <View style={styles.likesContainer}>
-            <FontAwesome name="heart" size={14} color={Colors.theme.primary} />
-            <Text style={styles.likesText}>{item.likes.length}</Text>
-        </View>
-    </Animated.View>
-);
 
-const ParticipantCard = ({ item, rank }: { item: Post, rank?: number }) => {
+// --- Componentes ---
+const ParticipantRow = ({ item, onLike, onImagePress, currentUserId }: { item: Post, onLike: (postId: string) => void, onImagePress: (imageUrl: string) => void, currentUserId?: string }) => {
+    const isLiked = currentUserId ? item.likes.includes(currentUserId) : false;
+    return (
+        <Animated.View entering={FadeInDown.duration(300)} style={styles.participantRow}>
+            <TouchableOpacity onPress={() => onImagePress(item.image)}>
+                <Image source={{ uri: item.image }} style={styles.participantRowImage} />
+            </TouchableOpacity>
+            <View style={styles.participantRowInfo}>
+                <Text style={styles.participantRowName} numberOfLines={1}>{item.title}</Text>
+                <Text style={styles.participantRowAuthor} numberOfLines={1}>Por: {item.authorName}</Text>
+            </View>
+            <TouchableOpacity onPress={() => onLike(item.id)} style={styles.likesContainer}>
+                <FontAwesome name={isLiked ? "heart" : "heart-o"} size={20} color={isLiked ? Colors.theme.primary : Colors.theme.grey} />
+                <Text style={styles.likesText}>{item.likes.length}</Text>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+};
+
+const ParticipantCard = ({ item, rank, onLike, onImagePress, currentUserId }: { item: Post, rank?: number, onLike: (postId: string) => void, onImagePress: (imageUrl: string) => void, currentUserId?: string }) => {
     const isPodium = rank !== undefined && rank < 3;
     const rankColor = ['#FFD700', '#C0C0C0', '#CD7F32'][rank || 0];
+    const isLiked = currentUserId ? item.likes.includes(currentUserId) : false;
 
     return (
         <Animated.View entering={FadeInDown.delay(rank ? rank * 100 : 300)} style={[styles.participantCard, isPodium && styles.podiumCard]}>
@@ -73,22 +99,26 @@ const ParticipantCard = ({ item, rank }: { item: Post, rank?: number }) => {
                     <Text style={styles.rankText}>{rank! + 1}</Text>
                 </View>
             )}
-            <Image source={{ uri: item.image }} style={styles.participantImage} />
+            <TouchableOpacity onPress={() => onImagePress(item.image)}>
+                <Image source={{ uri: item.image }} style={styles.participantImage} />
+            </TouchableOpacity>
             <View style={styles.participantInfo}>
                 <Text style={styles.participantName} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.authorName} numberOfLines={1}>Por: {item.authorName}</Text>
-                <View style={styles.likesContainer}>
-                    <FontAwesome name="heart" size={14} color={Colors.theme.primary} />
+                <TouchableOpacity onPress={() => onLike(item.id)} style={styles.likesContainer}>
+                    <FontAwesome name={isLiked ? "heart" : "heart-o"} size={16} color={isLiked ? Colors.theme.primary : Colors.theme.grey} />
                     <Text style={styles.likesText}>{item.likes.length}</Text>
-                </View>
+                </TouchableOpacity>
             </View>
         </Animated.View>
     );
 };
 
-const LastWinnerCard = ({ duel }: { duel: Duel }) => (
+const LastWinnerCard = ({ duel, onImagePress }: { duel: Duel, onImagePress: (imageUrl: string) => void }) => (
     <Animated.View entering={FadeInDown} style={styles.lastWinnerCard}>
-        <Image source={{ uri: duel.winner?.image }} style={styles.winnerImage} />
+        <TouchableOpacity onPress={() => onImagePress(duel.winner!.image)}>
+            <Image source={{ uri: duel.winner?.image }} style={styles.winnerImage} />
+        </TouchableOpacity>
         <View style={styles.winnerInfo}>
             <ProfilePicture photoURL={duel.winner?.authorPhoto} size={40} />
             <View>
@@ -169,37 +199,48 @@ export default function DuelsScreen() {
     const [participants, setParticipants] = useState<Post[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'current' | 'participants' | 'winner'>('current');
-    const [searchQuery, setSearchQuery] = useState(''); 
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+    const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
+    // **CORRECCIÓN**: Se separa la lógica de carga de duelos y participantes en dos `useEffect`
+    // para asegurar que el listener de participantes se actualice correctamente.
     useEffect(() => {
         const duelsRef = collection(db, "duels");
         const q = query(duelsRef, orderBy("endDate", "desc"));
 
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            setLoading(true);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
             const duelsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Duel[];
-            
             const currentActiveDuel = duelsData.find(d => d.isActive) || null;
             const lastFinishedDuel = duelsData.find(d => !d.isActive && d.winner) || null;
             
             setActiveDuel(currentActiveDuel);
             setLastWinnerDuel(lastFinishedDuel);
-
-            if (currentActiveDuel) {
-                const postsRef = collection(db, "posts");
-                const qPosts = query(postsRef, where("duelId", "==", currentActiveDuel.id));
-                const postsSnapshot = await getDocs(qPosts);
-                const participantsData = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[];
-                participantsData.sort((a, b) => b.likes.length - a.likes.length);
-                setParticipants(participantsData);
-            } else {
-                setParticipants([]);
-            }
-            setLoading(false);
         });
 
         return () => unsubscribe();
     }, []);
+
+    useEffect(() => {
+        if (activeDuel) {
+            setLoading(true);
+            const postsRef = collection(db, "posts");
+            const qPosts = query(postsRef, where("duelId", "==", activeDuel.id));
+            
+            const unsubscribePosts = onSnapshot(qPosts, (postsSnapshot) => {
+                const participantsData = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[];
+                participantsData.sort((a, b) => b.likes.length - a.likes.length);
+                setParticipants(participantsData);
+                setLoading(false);
+            });
+
+            return () => unsubscribePosts();
+        } else {
+            setParticipants([]);
+            setLoading(false);
+        }
+    }, [activeDuel]);
+
 
     const handleAddPost = () => {
         if (!user) {
@@ -209,17 +250,56 @@ export default function DuelsScreen() {
         }
     };
 
+    const handleLike = async (postId: string) => {
+        if (!user) {
+            promptLogin();
+            return;
+        }
+        
+        const originalParticipants = [...participants];
+        const postIndex = participants.findIndex(p => p.id === postId);
+        if (postIndex === -1) return;
+    
+        const post = participants[postIndex];
+        const isLiked = post.likes.includes(user.uid);
+        const newLikes = isLiked 
+            ? post.likes.filter(uid => uid !== user.uid)
+            : [...post.likes, user.uid];
+    
+        const updatedParticipants = [...participants];
+        updatedParticipants[postIndex] = { ...post, likes: newLikes };
+    
+        // Optimistic update
+        setParticipants(updatedParticipants);
+    
+        try {
+            const postRef = doc(db, "posts", postId);
+            await updateDoc(postRef, {
+                likes: isLiked ? arrayRemove(user.uid) : arrayUnion(user.uid)
+            });
+        } catch (error) {
+            // Revert on error
+            setParticipants(originalParticipants);
+            Alert.alert("Error", "No se pudo actualizar el 'Me gusta'.");
+        }
+    };
+
+    const handleImagePress = (imageUrl: string) => {
+        setSelectedImageUrl(imageUrl);
+        setIsImageModalVisible(true);
+    };
+
     const podium = useMemo(() => participants.slice(0, 3), [participants]);
     const otherParticipants = useMemo(() => participants.slice(3), [participants]);
 
     const filteredParticipants = useMemo(() => {
         if (!searchQuery) {
-            return otherParticipants;
+            return participants;
         }
         return participants.filter(participant =>
             participant.authorName.toLowerCase().includes(searchQuery.toLowerCase())
         );
-    }, [participants, searchQuery, otherParticipants]);
+    }, [participants, searchQuery]);
 
     const renderContent = () => {
         if (loading) {
@@ -241,11 +321,21 @@ export default function DuelsScreen() {
                             <Text style={styles.podiumTitle}>Podio Actual</Text>
                             <View style={styles.podiumContainer}>
                                 {podium.map((item, index) => (
-                                    <ParticipantCard key={item.id} item={item} rank={index} />
+                                    <ParticipantCard key={item.id} item={item} rank={index} onLike={handleLike} onImagePress={handleImagePress} currentUserId={user?.uid} />
                                 ))}
                             </View>
                         </>
                     )}
+                    
+                    {otherParticipants.length > 0 && <Text style={styles.podiumTitle}>Más Participantes</Text>}
+                    <FlatList
+                        data={otherParticipants}
+                        renderItem={({ item }) => <ParticipantCard item={item} onLike={handleLike} onImagePress={handleImagePress} currentUserId={user?.uid} />}
+                        keyExtractor={item => item.id}
+                        numColumns={2}
+                        scrollEnabled={false}
+                        columnWrapperStyle={{ justifyContent: 'space-between' }}
+                    />
                 </Animated.View>
             ) : (
                 <View style={styles.emptyContainer}>
@@ -269,7 +359,7 @@ export default function DuelsScreen() {
                     </View>
                     <FlatList
                         data={filteredParticipants}
-                        renderItem={({ item }) => <ParticipantRow item={item} />}
+                        renderItem={({ item }) => <ParticipantRow item={item} onLike={handleLike} onImagePress={handleImagePress} currentUserId={user?.uid} />}
                         keyExtractor={item => item.id}
                         scrollEnabled={false}
                         ListEmptyComponent={<Text style={styles.emptyText}>No se encontraron participantes.</Text>}
@@ -280,7 +370,7 @@ export default function DuelsScreen() {
 
         if (activeTab === 'winner') {
             return lastWinnerDuel ? (
-                <LastWinnerCard duel={lastWinnerDuel} />
+                <LastWinnerCard duel={lastWinnerDuel} onImagePress={handleImagePress} />
             ) : (
                 <View style={styles.emptyContainer}>
                     <FontAwesome name="star-o" size={50} color={Colors.theme.grey} />
@@ -313,6 +403,12 @@ export default function DuelsScreen() {
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {renderContent()}
             </ScrollView>
+
+            <ImageModal 
+                visible={isImageModalVisible}
+                imageUrl={selectedImageUrl}
+                onClose={() => setIsImageModalVisible(false)}
+            />
         </View>
     );
 }
@@ -324,7 +420,6 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: 28, fontWeight: 'bold', color: Colors.theme.text },
     scrollContent: { padding: 15, paddingBottom: 50 },
 
-    // Estilos para el Tab Switcher
     tabContainer: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -356,7 +451,6 @@ const styles = StyleSheet.create({
         color: '#ccc'
     },
     
-    // Estilos de la tarjeta de ganador
     lastWinnerCard: { backgroundColor: Colors.theme.card, borderRadius: 15, padding: 15, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
     winnerImage: { width: '100%', height: 180, borderRadius: 10, marginBottom: 10 },
     winnerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
@@ -368,7 +462,6 @@ const styles = StyleSheet.create({
     prizeValue: { marginLeft: 8, fontSize: 16, fontWeight: '600', color: Colors.theme.accent },
     framePreview: { width: 30, height: 30, marginLeft: 10, resizeMode: 'contain' },
     
-    // Estilos del duelo actual
     activeDuelSection: { backgroundColor: Colors.theme.card, borderRadius: 15, padding: 15, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
     duelTitle: { fontSize: 24, fontWeight: 'bold', color: Colors.theme.primary, textAlign: 'center', marginBottom: 5 },
     duelDescription: { fontSize: 15, color: Colors.theme.grey, textAlign: 'center', marginBottom: 20 },
@@ -380,7 +473,6 @@ const styles = StyleSheet.create({
     participateButton: { backgroundColor: Colors.theme.accent, paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25, alignSelf: 'center', marginBottom: 20 },
     participateButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
 
-    // Estilos del podio y participantes
     podiumTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.theme.text, marginTop: 10, marginBottom: 10 },
     podiumContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', marginBottom: 10 },
     participantCard: { flex: 1/2, margin: 5, backgroundColor: '#fff', borderRadius: 10, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, maxWidth: '47%' },
@@ -390,11 +482,10 @@ const styles = StyleSheet.create({
     participantName: { fontSize: 14, fontWeight: '600', color: Colors.theme.text },
     authorName: { fontSize: 12, color: Colors.theme.grey },
     likesContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-    likesText: { marginLeft: 5, color: Colors.theme.grey, fontWeight: 'bold' },
+    likesText: { marginLeft: 8, color: Colors.theme.grey, fontWeight: 'bold', fontSize: 16 },
     rankBadge: { position: 'absolute', top: 5, left: 5, width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', zIndex: 1, elevation: 5 },
     rankText: { color: 'white', fontWeight: 'bold' },
     
-    // **NUEVO** Estilos para la lista y buscador de participantes
     searchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -442,8 +533,24 @@ const styles = StyleSheet.create({
         color: Colors.theme.grey
     },
 
-    // Estado vacío
     emptyContainer: { marginTop: 50, alignItems: 'center', padding: 20 },
     emptyText: { fontSize: 18, color: Colors.theme.grey, fontWeight: '600', textAlign: 'center' },
     emptySubText: { fontSize: 14, color: Colors.theme.grey, marginTop: 5, textAlign: 'center' },
+    
+    imageModalContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    fullScreenImage: {
+        width: '100%',
+        height: '80%',
+    },
+    closeModalButton: {
+        position: 'absolute',
+        top: 50,
+        right: 20,
+        padding: 10,
+    },
 });

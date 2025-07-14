@@ -1,7 +1,7 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, doc, getDoc, getDocs, increment, orderBy, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
-import React, { useCallback, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { addDoc, collection, doc, increment, onSnapshot, orderBy, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PostDetailModal } from '../../components/PostDetailModal';
 import ProfilePicture from '../../components/ProfilePicture';
@@ -43,38 +43,44 @@ export default function UserProfileScreen() {
 
     const isMyProfile = loggedInUser?.uid === userId;
 
-    const fetchData = useCallback(async () => {
+    useEffect(() => {
         if (!userId || typeof userId !== 'string') return;
+
         setLoading(true);
-        try {
-            const userDocRef = doc(db, "users", userId);
-            const docSnap = await getDoc(userDocRef);
+        const userDocRef = doc(db, "users", userId);
+        const unsubscribeUser = onSnapshot(userDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 setProfileUser({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
+            } else {
+                setProfileUser(null);
             }
-
-            const postsRef = collection(db, "posts");
-            const q = query(postsRef, where("authorId", "==", userId), orderBy("createdAt", "desc"));
-            const querySnapshot = await getDocs(q);
-            setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[]);
-
-            if (loggedInUser && !isMyProfile) {
-                const followRef = doc(db, "users", userId, "followers", loggedInUser.uid);
-                const followSnap = await getDoc(followRef);
-                setIsFollowing(followSnap.exists());
-            }
-        } catch (error) {
-            console.error("Error fetching profile data:", error);
-        } finally {
             setLoading(false);
-        }
-    }, [userId, loggedInUser]);
+        });
 
-    useFocusEffect(
-        useCallback(() => {
-            fetchData();
-        }, [fetchData])
-    );
+        const postsRef = collection(db, "posts");
+        const q = query(postsRef, where("authorId", "==", userId), orderBy("createdAt", "desc"));
+        const unsubscribePosts = onSnapshot(q, (querySnapshot) => {
+            setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[]);
+        });
+
+        return () => {
+            unsubscribeUser();
+            unsubscribePosts();
+        };
+    }, [userId]);
+
+    useEffect(() => {
+        if (!loggedInUser || !userId || isMyProfile) {
+            setIsFollowing(false);
+            return;
+        }
+        const followRef = doc(db, "users", loggedInUser.uid, "following", userId as string);
+        const unsubscribeFollow = onSnapshot(followRef, (docSnap) => {
+            setIsFollowing(docSnap.exists());
+        });
+
+        return () => unsubscribeFollow();
+    }, [loggedInUser, userId, isMyProfile]);
 
     const handleFollow = async () => {
         if (!loggedInUser) {
@@ -84,6 +90,14 @@ export default function UserProfileScreen() {
         if (isMyProfile || !profileUser) return;
 
         const wasFollowing = isFollowing;
+        const originalFollowerCount = profileUser.followersCount || 0;
+
+        setIsFollowing(!wasFollowing);
+        setProfileUser(prev => prev ? {
+            ...prev,
+            followersCount: wasFollowing ? originalFollowerCount - 1 : originalFollowerCount + 1
+        } : null);
+
         const currentUserRef = doc(db, "users", loggedInUser.uid);
         const profileUserRef = doc(db, "users", profileUser.uid);
 
@@ -91,9 +105,8 @@ export default function UserProfileScreen() {
             await runTransaction(db, async (transaction) => {
                 const followingRef = doc(currentUserRef, "following", profileUser.uid);
                 const followerRef = doc(profileUserRef, "followers", loggedInUser.uid);
-                const followSnap = await transaction.get(followerRef);
 
-                if (followSnap.exists()) {
+                if (wasFollowing) {
                     transaction.delete(followerRef);
                     transaction.delete(followingRef);
                     transaction.update(profileUserRef, { followersCount: increment(-1) });
@@ -116,11 +129,12 @@ export default function UserProfileScreen() {
                     createdAt: serverTimestamp(),
                 });
             }
-
-            fetchData();
         } catch (error) {
             console.error("Error al seguir/dejar de seguir:", error);
             Alert.alert("Error", "No se pudo completar la acción.");
+            
+            setIsFollowing(wasFollowing);
+            setProfileUser(prev => prev ? { ...prev, followersCount: originalFollowerCount } : null);
         }
     };
 
@@ -132,6 +146,8 @@ export default function UserProfileScreen() {
         return <View style={styles.loadingContainer}><Text>No se encontró el perfil.</Text></View>;
     }
     
+    const userTitle = profileUser.badges && profileUser.badges.length > 0 ? profileUser.badges[profileUser.badges.length - 1] : null;
+
     return (
         <SafeAreaView style={styles.container}>
             <Stack.Screen options={{ headerShown: false }} />
@@ -150,6 +166,14 @@ export default function UserProfileScreen() {
                                 borderWidth={4}
                             />
                             <Text style={styles.name}>{profileUser.name} {profileUser.lastName}</Text>
+                            <Text style={styles.nickname}>@{profileUser.nickname}</Text>
+                            {userTitle && (
+                                <View style={styles.titleBadge}>
+                                    <FontAwesome name="trophy" size={14} color="#D4AF37" />
+                                    <Text style={styles.userTitle}>{userTitle}</Text>
+                                </View>
+                            )}
+                            {profileUser.description && <Text style={styles.description}>{profileUser.description}</Text>}
                             <View style={styles.statsContainer}>
                                 <View style={styles.stat}><Text style={styles.statNumber}>{userPosts.length}</Text><Text style={styles.statLabel}>Posts</Text></View>
                                 <View style={styles.statSeparator} />
@@ -188,7 +212,7 @@ export default function UserProfileScreen() {
                 }
                 ListEmptyComponent={ activeTab === 'posts' && userPosts.length === 0 ? <View style={styles.emptyContainer}><Text style={styles.emptyText}>Este sazonador aún no ha publicado nada.</Text></View> : null}
             />
-            <PostDetailModal visible={!!selectedPost} onClose={() => setSelectedPost(null)} post={selectedPost} onPostUpdate={fetchData} />
+            <PostDetailModal visible={!!selectedPost} onClose={() => setSelectedPost(null)} post={selectedPost} onPostUpdate={() => {}} />
         </SafeAreaView>
     );
 }
@@ -199,8 +223,32 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.theme.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     backButton: { position: 'absolute', top: 50, left: 20, zIndex: 10, backgroundColor: Colors.theme.card, padding: 10, borderRadius: 20, elevation: 5, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
-    headerContainer: { alignItems: 'center', paddingTop: 80, paddingBottom: 20, backgroundColor: Colors.theme.card },
+    headerContainer: { alignItems: 'center', paddingTop: 80, paddingBottom: 20, backgroundColor: Colors.theme.card, paddingHorizontal: 20 },
     name: { fontSize: 22, fontWeight: 'bold', color: Colors.theme.text, marginTop: 15 },
+    nickname: { fontSize: 16, color: Colors.theme.grey, marginTop: 2 },
+    titleBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f0f0f0',
+        borderRadius: 15,
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        marginTop: 8,
+    },
+    userTitle: {
+        marginLeft: 6,
+        fontSize: 14,
+        fontWeight: '600',
+        color: Colors.theme.text,
+    },
+    description: {
+        fontSize: 15,
+        color: Colors.theme.grey,
+        textAlign: 'center',
+        marginTop: 10,
+        marginBottom: 10,
+        paddingHorizontal: 10,
+    },
     statsContainer: { flexDirection: 'row', marginVertical: 20 },
     stat: { alignItems: 'center', paddingHorizontal: 20 },
     statNumber: { fontSize: 18, fontWeight: 'bold', color: Colors.theme.text },

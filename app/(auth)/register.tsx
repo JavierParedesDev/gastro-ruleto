@@ -2,16 +2,33 @@ import { FontAwesome } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ImageBackground, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
 
 const GENDER_OPTIONS = ["Masculino", "Femenino", "Prefiero no decir"];
+
+// Debounce function
+function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
+    let timeout: ReturnType<typeof setTimeout>;
+    return (...args: Parameters<F>): Promise<ReturnType<F>> =>
+        new Promise(resolve => {
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            timeout = setTimeout(() => resolve(func(...args)), waitFor);
+        });
+}
 
 export default function RegisterScreen() {
     const [name, setName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [nickname, setNickname] = useState('');
+    const [isCheckingNickname, setIsCheckingNickname] = useState(false);
+    const [nicknameAvailable, setNicknameAvailable] = useState<boolean | null>(null);
     const [email, setEmail] = useState('');
     const [birthDate, setBirthDate] = useState('');
     const [date, setDate] = useState(new Date());
@@ -23,8 +40,35 @@ export default function RegisterScreen() {
     const { register } = useAuth();
     const router = useRouter();
 
+    const checkNicknameAvailability = async (text: string) => {
+        if (text.length < 3) {
+            setNicknameAvailable(null);
+            setIsCheckingNickname(false);
+            return;
+        }
+        setIsCheckingNickname(true);
+        const q = query(collection(db, "nicknames"), where("nickname_lowercase", "==", text.toLowerCase()));
+        const querySnapshot = await getDocs(q);
+        setNicknameAvailable(querySnapshot.empty);
+        setIsCheckingNickname(false);
+    };
+
+    const debouncedCheck = useCallback(debounce(checkNicknameAvailability, 300), []);
+
+    const handleNicknameChange = (text: string) => {
+        const formatted = text.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+        setNickname(formatted);
+        setIsCheckingNickname(true);
+        setNicknameAvailable(null);
+        debouncedCheck(formatted);
+    };
+
     const handleSignUp = async () => {
-        if (!name || !lastName || !email || !birthDate || !gender || !password || !confirmPassword) {
+        if (nicknameAvailable === false) {
+            Alert.alert("Nickname no disponible", "Por favor, elige otro nombre de usuario.");
+            return;
+        }
+        if (!name || !lastName || !email || !birthDate || !gender || !password || !confirmPassword || !nickname) {
             Alert.alert("Campos incompletos", "Por favor, rellena todos los campos.");
             return;
         }
@@ -34,7 +78,15 @@ export default function RegisterScreen() {
         }
         setLoading(true);
         try {
-            await register(email, password, name, lastName, birthDate, gender);
+            await register({
+                email,
+                pass: password,
+                name,
+                lastName,
+                birthDate,
+                gender,
+                nickname
+            });
             router.replace('/(tabs)');
         } catch (error: any) {
             console.error(error);
@@ -58,6 +110,30 @@ export default function RegisterScreen() {
         setBirthDate(formattedDate);
     };
 
+    const renderNicknameStatusIcon = () => {
+        if (isCheckingNickname) {
+            return <ActivityIndicator size="small" color="#fff" />;
+        }
+        if (nicknameAvailable === true) {
+            return <FontAwesome name="check-circle" size={20} color={Colors.theme.accent} />;
+        }
+        if (nicknameAvailable === false) {
+            return <FontAwesome name="times-circle" size={20} color={Colors.theme.primary} />;
+        }
+        return null;
+    };
+
+    const renderNicknameMessage = () => {
+        if (nickname.length > 0 && nickname.length < 3) {
+            return <Text style={styles.errorMessage}>El nickname debe tener al menos 3 caracteres.</Text>;
+        }
+        if (nicknameAvailable === false) {
+            return <Text style={styles.errorMessage}>Este nickname ya está en uso. Por favor, elige otro.</Text>;
+        }
+        return null;
+    };
+
+
     return (
         <ImageBackground
             source={{ uri: 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?q=80&w=2070&auto=format&fit=crop' }}
@@ -79,6 +155,24 @@ export default function RegisterScreen() {
 
                             <TextInput style={styles.input} placeholder="Nombre" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={name} onChangeText={setName} />
                             <TextInput style={styles.input} placeholder="Apellido" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={lastName} onChangeText={setLastName} />
+                            
+                            {/* **Contenedor para el campo de Nickname y su mensaje de error** */}
+                            <View style={styles.fieldWrapper}>
+                                <View style={styles.inputContainer}>
+                                    <TextInput 
+                                        style={styles.inputField} 
+                                        placeholder="Nickname" 
+                                        placeholderTextColor="rgba(255, 255, 255, 0.5)" 
+                                        value={nickname} 
+                                        onChangeText={handleNicknameChange} 
+                                        autoCapitalize="none" 
+                                        maxLength={30}
+                                    />
+                                    <View style={styles.statusIcon}>{renderNicknameStatusIcon()}</View>
+                                </View>
+                                {renderNicknameMessage()}
+                            </View>
+
                             <TextInput style={styles.input} placeholder="Email" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
                             <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={password} onChangeText={setPassword} secureTextEntry />
                             <TextInput style={styles.input} placeholder="Confirmar Contraseña" placeholderTextColor="rgba(255, 255, 255, 0.5)" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
@@ -113,7 +207,7 @@ export default function RegisterScreen() {
                                 ))}
                             </View>
 
-                            <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
+                            <TouchableOpacity style={[styles.button, (loading || nicknameAvailable === false) && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading || nicknameAvailable === false}>
                                 {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrarse</Text>}
                             </TouchableOpacity>
                             
@@ -170,6 +264,10 @@ const styles = StyleSheet.create({
         marginBottom: 20,
         textAlign: 'center',
     },
+    fieldWrapper: {
+        width: '100%',
+        marginBottom: 15,
+    },
     input: {
         width: '100%',
         height: 55,
@@ -183,9 +281,35 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255, 255, 255, 0.2)',
         justifyContent: 'center',
     },
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '100%',
+        height: 55,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 15,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    inputField: {
+        flex: 1,
+        paddingHorizontal: 20,
+        fontSize: 16,
+        color: 'white',
+    },
+    statusIcon: {
+        paddingHorizontal: 15,
+    },
+    errorMessage: {
+        color: Colors.theme.primary,
+        fontSize: 12,
+        marginTop: 5,
+        marginLeft: 10,
+        fontWeight: '600'
+    },
     dateText: { color: 'white' },
     placeholder: { color: 'rgba(255, 255, 255, 0.5)' },
-    genderContainer: { flexDirection: 'column',gap: 10, justifyContent: 'space-between', marginBottom: 15  },
+    genderContainer: { flexDirection: 'column',gap: 10,justifyContent: 'space-between', marginBottom: 15 },
     genderButton: { paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: 'rgba(255, 255, 255, 0.2)', flex: 1, marginHorizontal: 4, alignItems: 'center' },
     genderButtonSelected: { backgroundColor: 'rgba(255, 92, 0, 0.4)', borderColor: Colors.theme.primary },
     genderButtonText: { color: 'rgba(255, 255, 255, 0.7)', fontWeight: '600' },

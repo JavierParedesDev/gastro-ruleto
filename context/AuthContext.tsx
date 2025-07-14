@@ -4,7 +4,7 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebaseConfig';
 
@@ -13,6 +13,7 @@ interface Frame { name: string; url: string; }
 
 export interface UserProfile {
     uid: string;
+    nickname: string;
     name: string;
     lastName: string;
     birthDate: string; 
@@ -26,7 +27,18 @@ export interface UserProfile {
     frames?: Frame[];
     equippedFrameUrl?: string;
     viewedBadgesCount?: number; 
-    viewedFramesCount?: number; 
+    viewedFramesCount?: number;
+    nicknameLastChanged?: any; // **NUEVO CAMPO**
+}
+
+interface RegistrationData {
+    email: string;
+    pass: string;
+    name: string;
+    lastName: string;
+    birthDate: string;
+    gender: string;
+    nickname: string;
 }
 
 interface AuthContextType {
@@ -35,7 +47,7 @@ interface AuthContextType {
   isLoginPromptVisible: boolean;
   promptLogin: () => void;
   closeLoginPrompt: () => void;
-  register: (email: string, pass: string, name: string, lastName: string, birthDate: string, gender: string) => Promise<void>;
+  register: (data: RegistrationData) => Promise<void>;
   login: (email: string, pass: string) => Promise<any>;
   logout: () => Promise<void>;
   fetchUserProfile: (uid: string) => Promise<void>;
@@ -77,17 +89,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const promptLogin = () => setLoginPromptVisible(true);
   const closeLoginPrompt = () => setLoginPromptVisible(false);
 
-  const register = async (email: string, pass: string, name: string, lastName: string, birthDate: string, gender: string) => {
+  const register = async (data: RegistrationData) => {
+    const { email, pass, name, lastName, birthDate, gender, nickname } = data;
     const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
     const { uid } = userCredential.user;
     
-    await setDoc(doc(db, "users", uid), {
-        uid, name, lastName, birthDate, gender, email, photoURL: '', description: '',
+    const batch = writeBatch(db);
+
+    const userRef = doc(db, "users", uid);
+    batch.set(userRef, {
+        uid, nickname, name, lastName, birthDate, gender, email, photoURL: '', description: '',
         followersCount: 0, followingCount: 0, 
         badges: [], frames: [], equippedFrameUrl: '',
-         viewedBadgesCount: 0, viewedFramesCount: 0, 
+        viewedBadgesCount: 0, viewedFramesCount: 0, 
+        nicknameLastChanged: serverTimestamp(), // **AÑADIDO**: Se establece la fecha de creación.
     });
+
+    const nicknameRef = doc(db, "nicknames", nickname.toLowerCase());
+    batch.set(nicknameRef, { userId: uid, nickname_lowercase: nickname.toLowerCase() });
     
+    await batch.commit();
     await fetchUserProfile(uid);
   };
 
