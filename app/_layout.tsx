@@ -2,14 +2,31 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { SplashScreen, Stack } from 'expo-router';
 import React, { useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { LoginPromptModal } from '../components/LoginPromptModal';
-import { AuthProvider } from '../context/AuthContext';
-import { NotificationProvider } from '../context/NotificationContext'; // 1. Importar el nuevo provider
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { NotificationProvider } from '../context/NotificationContext';
+import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 
 // Prevenir que la pantalla de splash se oculte automáticamente
 SplashScreen.preventAutoHideAsync();
 
+function RootApp() {
+  const { user, updateUserPushToken } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      registerForPushNotificationsAsync().then(token => {
+        if (token) {
+          updateUserPushToken(token);
+        }
+      });
+    }
+  }, [user]);
+
+  return <RootLayoutNav />;
+}
 
 function RootLayoutNav() {
   return (
@@ -20,11 +37,15 @@ function RootLayoutNav() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
 
         <Stack.Screen name="profile" options={{ headerShown: false }} />
+        <Stack.Screen name="discover" options={{ headerShown: false }} />
+        <Stack.Screen name="pantry" options={{ headerShown: false }} />
+        <Stack.Screen name="planner" options={{ headerShown: false }} />
+        <Stack.Screen name="historial" options={{ headerShown: false }} />
  
         <Stack.Screen name="cookingMode" options={{ title: 'Modo Cocina', presentation: 'modal' }} />
         <Stack.Screen name="createPost" options={{ title: 'Crear Publicación', presentation: 'modal' }} />
         <Stack.Screen name="profile/[userId]" options={{ title: 'Perfil', presentation: 'modal' }} />
-        <Stack.Screen name='favorites' options={{ title: 'Favoritos', presentation: 'modal' }} />
+        <Stack.Screen name='favorites' options={{ headerShown: false }} />
 
         <Stack.Screen name="+not-found" />
       </Stack>
@@ -55,10 +76,12 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <NotificationProvider> 
-        <RootLayoutNav />
-      </NotificationProvider>
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <NotificationProvider> 
+          <RootApp />
+        </NotificationProvider>
+      </AuthProvider>
+    </GestureHandlerRootView>
   );
 }

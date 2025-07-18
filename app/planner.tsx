@@ -4,9 +4,9 @@ import { FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query, QueryConstraint, QueryDocumentSnapshot, startAfter, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, ImageBackground, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // --- Interfaces ---
 interface Recipe {
@@ -24,7 +24,7 @@ interface Plan {
     };
 }
 
-// --- Componente de la Lista de Compras ---
+// --- Componente de la Lista de Compras (sin cambios) ---
 const ShoppingList = ({ plan }: { plan: Plan }) => {
     const [shoppingList, setShoppingList] = useState<string[]>([]);
     const [checkedItems, setCheckedItems] = useState<string[]>([]);
@@ -92,10 +92,71 @@ const ShoppingList = ({ plan }: { plan: Plan }) => {
     );
 };
 
-// --- Modal para seleccionar recetas (Rediseñado) ---
-const RecipePickerModal = ({ visible, onClose, recipes, onSelect }: { visible: boolean, onClose: () => void, recipes: Recipe[], onSelect: (recipe: Recipe) => void }) => {
+// --- Modal para seleccionar recetas (con paginación) ---
+const RecipePickerModal = ({ visible, onClose, onSelect }: { visible: boolean, onClose: () => void, onSelect: (recipe: Recipe) => void }) => {
     const [searchQuery, setSearchQuery] = useState('');
-    const filteredRecipes = recipes.filter(r => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot | null>(null);
+    const [hasMore, setHasMore] = useState(true);
+
+    const fetchRecipes = async (loadMore = false) => {
+        if (loadingMore || (!hasMore && loadMore)) return;
+
+        if (loadMore) setLoadingMore(true);
+        else setLoading(true);
+
+        try {
+            const recipesRef = collection(db, "recipes");
+            const queryLimit = 10;
+            let q;
+
+            const queryConstraints: QueryConstraint[] = [orderBy("name")];
+            if (searchQuery) {
+                queryConstraints.push(where("name", ">=", searchQuery));
+                queryConstraints.push(where("name", "<=", searchQuery + '\uf8ff'));
+            }
+
+            if (loadMore && lastVisible) {
+                q = query(recipesRef, ...queryConstraints, startAfter(lastVisible), limit(queryLimit));
+            } else {
+                q = query(recipesRef, ...queryConstraints, limit(queryLimit));
+            }
+
+            const snapshot = await getDocs(q);
+            const newRecipes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe));
+
+            if (snapshot.docs.length < queryLimit) setHasMore(false);
+            if (snapshot.docs.length > 0) setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+
+            if (loadMore) {
+                setRecipes(prev => [...prev, ...newRecipes]);
+            } else {
+                setRecipes(newRecipes);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+            setLoadingMore(false);
+        }
+    };
+
+    useEffect(() => {
+        if (visible) {
+            setRecipes([]);
+            setLastVisible(null);
+            setHasMore(true);
+            fetchRecipes();
+        }
+    }, [visible, searchQuery]);
+
+    const renderFooter = () => {
+        if (loadingMore) return <ActivityIndicator style={{ marginVertical: 20 }} color={Colors.theme.primary} />;
+        if (!hasMore) return <Text style={modalStyles.noMoreRecipesText}>No hay más recetas</Text>;
+        return null;
+    };
 
     return (
         <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
@@ -116,19 +177,24 @@ const RecipePickerModal = ({ visible, onClose, recipes, onSelect }: { visible: b
                             onChangeText={setSearchQuery}
                         />
                     </View>
-                    <FlatList
-                        data={filteredRecipes}
-                        keyExtractor={item => item.id}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity style={modalStyles.pickerItem} onPress={() => onSelect(item)}>
-                                <Image source={{uri: item.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={modalStyles.pickerItemImage} />
-                                <View>
-                                    <Text style={modalStyles.pickerItemTitle}>{item.name}</Text>
-                                    <Text style={modalStyles.pickerItemCategory}>{item.category}</Text>
-                                </View>
-                            </TouchableOpacity>
-                        )}
-                    />
+                    {loading && recipes.length === 0 ? <ActivityIndicator size="large" color={Colors.theme.primary} /> : (
+                        <FlatList
+                            data={recipes}
+                            keyExtractor={item => item.id}
+                            renderItem={({ item }) => (
+                                <TouchableOpacity style={modalStyles.pickerItem} onPress={() => onSelect(item)}>
+                                    <Image source={{uri: item.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={modalStyles.pickerItemImage} />
+                                    <View>
+                                        <Text style={modalStyles.pickerItemTitle}>{item.name}</Text>
+                                        <Text style={modalStyles.pickerItemCategory}>{item.category}</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                            onEndReached={() => fetchRecipes(true)}
+                            onEndReachedThreshold={0.5}
+                            ListFooterComponent={renderFooter}
+                        />
+                    )}
                 </View>
             </TouchableOpacity>
         </Modal>
@@ -136,36 +202,31 @@ const RecipePickerModal = ({ visible, onClose, recipes, onSelect }: { visible: b
 };
 
 
-// --- Pantalla del Planificador ---
+// --- Pantalla del Planificador (Rediseñada) ---
 export default function PlannerScreen() {
     const [plan, setPlan] = useState<Plan>({});
-    const [allRecipes, setAllRecipes] = useState<Recipe[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'planner' | 'shoppingList'>('planner');
     const [isPickerVisible, setPickerVisible] = useState(false);
     const [planningSlot, setPlanningSlot] = useState<{ day: string, meal: string } | null>(null);
+    const [selectedDay, setSelectedDay] = useState('Lunes');
     
     const daysOfWeek = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+    const meals = ["Desayuno", "Almuerzo", "Once", "Cena"];
 
-    const loadPlanAndRecipes = async () => {
+    const loadPlan = async () => {
         setLoading(true);
         try {
             const planJSON = await AsyncStorage.getItem('weeklyPlan');
             if (planJSON) setPlan(JSON.parse(planJSON));
-
-            if (allRecipes.length === 0) {
-                const querySnapshot = await getDocs(collection(db, "recipes"));
-                const recipesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Recipe[];
-                setAllRecipes(recipesData);
-            }
         } catch (e) {
-            console.error("Failed to load data.", e);
+            console.error("Failed to load plan.", e);
         } finally {
             setLoading(false);
         }
     };
     
-    useFocusEffect(useCallback(() => { loadPlanAndRecipes(); }, []));
+    useFocusEffect(useCallback(() => { loadPlan(); }, []));
 
     const handleOpenPicker = (day: string, meal: string) => {
         setPlanningSlot({ day, meal });
@@ -187,6 +248,38 @@ export default function PlannerScreen() {
         await AsyncStorage.setItem('weeklyPlan', JSON.stringify(newPlan));
     };
 
+    const renderPlannerContent = () => (
+        <ScrollView contentContainerStyle={styles.plannerContent}>
+            {meals.map(meal => {
+                const plannedRecipe = plan[selectedDay]?.[meal];
+                return (
+                    <View key={meal} style={styles.mealCard}>
+                        {plannedRecipe ? (
+                            <ImageBackground 
+                                source={{uri: plannedRecipe.image || 'https://placehold.co/600x400/FFDDC9/FF5C00?text=🍲'}} 
+                                style={styles.mealImageBackground}
+                                imageStyle={{ borderRadius: 15 }}
+                            >
+                                <View style={styles.mealOverlay}>
+                                    <Text style={styles.mealTitle}>{meal}</Text>
+                                    <Text style={styles.mealRecipeName}>{plannedRecipe.name}</Text>
+                                    <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveRecipe(selectedDay, meal)}>
+                                        <FontAwesome name="times" size={16} color="white" />
+                                    </TouchableOpacity>
+                                </View>
+                            </ImageBackground>
+                        ) : (
+                            <TouchableOpacity style={styles.addMealButton} onPress={() => handleOpenPicker(selectedDay, meal)}>
+                                <FontAwesome name="plus-circle" size={30} color={Colors.theme.primary} />
+                                <Text style={styles.addMealText}>Añadir {meal}</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                );
+            })}
+        </ScrollView>
+    );
+
     return (
         <View style={styles.container}>
             <StatusBar style="dark" />
@@ -199,97 +292,102 @@ export default function PlannerScreen() {
 
             {loading ? <ActivityIndicator size="large" color={Colors.theme.primary} style={{flex: 1}}/> : (
                 activeTab === 'planner' ? (
-                    <FlatList
-                        data={daysOfWeek}
-                        keyExtractor={item => item}
-                        contentContainerStyle={{paddingBottom: 80}}
-                        renderItem={({item: day}) => (
-                            <View style={styles.dayContainer}>
-                            
-                                <Text style={styles.dayTitle}>{day}</Text>
-
-
-
-                                <View style={styles.mealSlot}>
-                                    <Text style={styles.mealTitle}>Desayuno</Text>
-                                    {plan[day]?.Desayuno ? (
-                                        <View style={styles.mealPlanned}>
-                                            <Image source={{uri: plan[day].Desayuno!.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={styles.mealImage} />
-                                            <Text style={styles.mealRecipe}>{plan[day].Desayuno!.name}</Text>
-                                            <TouchableOpacity onPress={() => handleRemoveRecipe(day, 'Desayuno')}><FontAwesome name="times-circle" size={24} color={Colors.theme.grey} /></TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity style={styles.addButton} onPress={() => handleOpenPicker(day, 'Desayuno')}><FontAwesome name="plus" size={16} color={Colors.theme.primary} /><Text style={styles.addButtonText}>Añadir Desayuno</Text></TouchableOpacity>
-                                    )}
-
-                                </View>
-                                <View style={styles.mealSlot}>
-                                    <Text style={styles.mealTitle}>Almuerzo</Text>
-                                    {plan[day]?.Almuerzo ? (
-                                        <View style={styles.mealPlanned}>
-                                            <Image source={{uri: plan[day].Almuerzo!.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={styles.mealImage} />
-                                            <Text style={styles.mealRecipe}>{plan[day].Almuerzo!.name}</Text>
-                                            <TouchableOpacity onPress={() => handleRemoveRecipe(day, 'Almuerzo')}><FontAwesome name="times-circle" size={24} color={Colors.theme.grey} /></TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity style={styles.addButton} onPress={() => handleOpenPicker(day, 'Almuerzo')}><FontAwesome name="plus" size={16} color={Colors.theme.primary} /><Text style={styles.addButtonText}>Añadir Almuerzo</Text></TouchableOpacity>
-                                    )}
-                                </View>
-                                <View style={styles.mealSlot}>
-                                    <Text style={styles.mealTitle}>Once</Text>
-                                    {plan[day]?.Once ? (
-                                        <View style={styles.mealPlanned}>
-                                            <Image source={{uri: plan[day].Once!.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={styles.mealImage} />
-                                            <Text style={styles.mealRecipe}>{plan[day].Once!.name}</Text>
-                                            <TouchableOpacity onPress={() => handleRemoveRecipe(day, 'Once')}><FontAwesome name="times-circle" size={24} color={Colors.theme.grey} /></TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity style={styles.addButton} onPress={() => handleOpenPicker(day, 'Once')}><FontAwesome name="plus" size={16} color={Colors.theme.primary} /><Text style={styles.addButtonText}>Añadir Once</Text></TouchableOpacity>
-                                    )}
-                                </View>
-
-                                <View style={styles.mealSlot}>
-                                    <Text style={styles.mealTitle}>Cena</Text>
-                                    {plan[day]?.Cena ? (
-                                        <View style={styles.mealPlanned}>
-                                            <Image source={{uri: plan[day].Cena!.image || 'https://placehold.co/100x100/FFDDC9/FF5C00?text=🍲'}} style={styles.mealImage} />
-                                            <Text style={styles.mealRecipe}>{plan[day].Cena!.name}</Text>
-                                            <TouchableOpacity onPress={() => handleRemoveRecipe(day, 'Cena')}><FontAwesome name="times-circle" size={24} color={Colors.theme.grey} /></TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity style={styles.addButton} onPress={() => handleOpenPicker(day, 'Cena')}><FontAwesome name="plus" size={16} color={Colors.theme.primary} /><Text style={styles.addButtonText}>Añadir Cena</Text></TouchableOpacity>
-                                    )}  
-                                </View>
-                            </View>
-                        )}
-                    />
+                    <>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daysContainer}>
+                            {daysOfWeek.map(day => (
+                                <TouchableOpacity key={day} onPress={() => setSelectedDay(day)} style={[styles.dayChip, selectedDay === day && styles.dayChipActive]}>
+                                    <Text style={[styles.dayText, selectedDay === day && styles.dayTextActive]}>{day}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                        {renderPlannerContent()}
+                    </>
                 ) : (
                     <ShoppingList plan={plan} />
                 )
             )}
-            <RecipePickerModal visible={isPickerVisible} onClose={() => setPickerVisible(false)} recipes={allRecipes} onSelect={handleSelectRecipe} />
+            <RecipePickerModal visible={isPickerVisible} onClose={() => setPickerVisible(false)} onSelect={handleSelectRecipe} />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.theme.background, paddingTop: 60, paddingHorizontal: 10 },
-    headerTitle: { fontSize: 32, fontWeight: 'bold', color: Colors.theme.text, marginBottom: 15, paddingHorizontal: 10 },
-    tabContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 20, backgroundColor: Colors.theme.card, marginHorizontal: 10, borderRadius: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
+    container: { flex: 1, backgroundColor: Colors.theme.background, paddingTop: 60 },
+    headerTitle: { fontSize: 32, fontWeight: 'bold', color: Colors.theme.text, marginBottom: 15, paddingHorizontal: 20 },
+    tabContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 20, backgroundColor: Colors.theme.card, marginHorizontal: 20, borderRadius: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
     tabButton: { flex: 1, paddingVertical: 12, borderRadius: 20 },
     tabButtonActive: { backgroundColor: Colors.theme.primary },
     tabText: { color: Colors.theme.primary, fontWeight: 'bold', textAlign: 'center' },
     tabTextActive: { color: Colors.theme.textLight },
-    dayContainer: { backgroundColor: Colors.theme.card, borderRadius: 15, padding: 15, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
-    dayTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.theme.text, marginBottom: 10 },
-    mealSlot: { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10, marginTop: 10 },
-    mealTitle: { fontSize: 14, color: Colors.theme.grey, marginBottom: 8, fontWeight: '500' },
-    mealRecipe: { fontSize: 16, color: Colors.theme.text, fontWeight: '600', flex: 1 },
-    mealPlanned: { flexDirection: 'row', alignItems: 'center' },
-    mealImage: { width: 40, height: 40, borderRadius: 8, marginRight: 10 },
-    addButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, justifyContent: 'center', backgroundColor: '#e8f5e9', borderRadius: 10 },
-    addButtonText: { color: Colors.theme.accent, fontSize: 16, fontWeight: 'bold', marginLeft: 8 },
-    shoppingListContainer: { flex: 1, backgroundColor: Colors.theme.card, margin: 5, borderRadius: 15, padding: 10 },
+    daysContainer: { paddingVertical: 10, paddingHorizontal: 20 },
+    dayChip: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 20, backgroundColor: Colors.theme.card, marginRight: 10, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2 },
+    dayChipActive: { backgroundColor: Colors.theme.secondary },
+    dayText: { color: Colors.theme.text, fontWeight: '600' },
+    dayTextActive: { color: Colors.theme.textLight },
+    
+    // Planner Content Styles
+    plannerContent: { paddingHorizontal: 15, paddingBottom: 80 },
+    mealCard: {
+        height: 120,
+        borderRadius: 15,
+        marginBottom: 15,
+        backgroundColor: Colors.theme.card,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOpacity: 0.05,
+        shadowRadius: 5,
+    },
+    mealImageBackground: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
+    mealOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        borderRadius: 15,
+        padding: 15,
+        justifyContent: 'space-between',
+    },
+    mealTitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: 'rgba(255,255,255,0.8)',
+        textTransform: 'uppercase',
+    },
+    mealRecipeName: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: 'white',
+    },
+    removeButton: {
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    addMealButton: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 15,
+        borderWidth: 2,
+        borderColor: '#eee',
+        borderStyle: 'dashed',
+    },
+    addMealText: {
+        marginTop: 8,
+        fontSize: 16,
+        color: Colors.theme.grey,
+        fontWeight: '600',
+    },
+
+    // Shopping List Styles
+    shoppingListContainer: { flex: 1, backgroundColor: Colors.theme.card, marginHorizontal: 10, borderRadius: 15, padding: 10 },
     shoppingListItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
     shoppingListText: { fontSize: 16, marginLeft: 15, color: Colors.theme.text, textTransform: 'capitalize' },
     shoppingListTextChecked: { textDecorationLine: 'line-through', color: Colors.theme.grey },
@@ -298,71 +396,15 @@ const styles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalContainer: {
-        backgroundColor: 'white',
-        height: '85%',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        padding: 20,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    modalTitle: {
-        fontSize: 22,
-        fontWeight: 'bold',
-    },
-    searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#f0f2f5',
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        marginBottom: 15,
-    },
-    pickerSearchInput: {
-        flex: 1,
-        height: 45,
-    },
-    pickerItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-    },
-    pickerItemImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 8,
-        marginRight: 15,
-    },
-    pickerItemTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    pickerItemCategory: {
-        fontSize: 12,
-        color: Colors.theme.grey,
-    },
-    closeButton: {
-        backgroundColor: Colors.theme.primary,
-        padding: 15,
-        alignItems: 'center',
-        borderRadius: 10,
-        marginTop: 10,
-    },
-    closeButtonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalContainer: { backgroundColor: 'white', height: '85%', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+    modalTitle: { fontSize: 22, fontWeight: 'bold' },
+    searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f2f5', borderRadius: 10, paddingHorizontal: 10, marginBottom: 15 },
+    pickerSearchInput: { flex: 1, height: 45 },
+    pickerItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
+    pickerItemImage: { width: 50, height: 50, borderRadius: 8, marginRight: 15 },
+    pickerItemTitle: { fontSize: 16, fontWeight: '600' },
+    pickerItemCategory: { fontSize: 12, color: Colors.theme.grey },
+    noMoreRecipesText: { textAlign: 'center', padding: 20, color: Colors.theme.grey },
 });

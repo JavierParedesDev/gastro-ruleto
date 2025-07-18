@@ -4,7 +4,7 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { CustomAlert } from '../components/CustomAlert';
 import { auth, db } from '../firebaseConfig';
@@ -29,6 +29,7 @@ export interface UserProfile {
     viewedBadgesCount?: number; 
     viewedFramesCount?: number;
     nicknameLastChanged?: any;
+    pushToken?: string;
 }
 
 interface RegistrationData {
@@ -65,6 +66,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   fetchUserProfile: (uid: string) => Promise<void>;
   showAlert: (config: Omit<AlertConfig, 'visible'>) => void;
+  updateUserPushToken: (token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -136,8 +138,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const login = (email: string, pass: string) => {
-    // La persistencia de la sesión se maneja en firebaseConfig.js
-    // que establece la persistencia para React Native por defecto.
     return signInWithEmailAndPassword(auth, email, pass);
   };
 
@@ -145,7 +145,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return signOut(auth);
   };
 
-  const value = { user, loading, isLoginPromptVisible, promptLogin, closeLoginPrompt, register, login, logout, fetchUserProfile, showAlert };
+  const updateUserPushToken = async (token: string) => {
+    if (user && user.pushToken !== token) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, { pushToken: token });
+        setUser(prev => prev ? { ...prev, pushToken: token } : null);
+      } catch (error) {
+        console.error("Error updating push token:", error);
+      }
+    }
+  };
+
+  const value = { user, loading, isLoginPromptVisible, promptLogin, closeLoginPrompt, register, login, logout, fetchUserProfile, showAlert, updateUserPushToken };
 
   return (
     <AuthContext.Provider value={value}>

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "gastro-ruleto",
-    "slug": "gastro-ruleto",
+    "name": "Mi Sazón",
+    "slug": "mi-sazon",
     "version": "1.0.0-beta",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "gastroruleto",
+    "icon": "./assets/images/icono-app.png",
+    "scheme": "misazon",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -17,8 +17,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/icono-app.png",
+        "backgroundColor": "#9c3100"
       },
       "package": "com.shapydev.gastroruleto",
       "googleServicesFile": "./google-services.json",
@@ -38,7 +38,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/images/icono-app.png"
     },
     "plugins": [
       "expo-router",

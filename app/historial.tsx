@@ -1,10 +1,12 @@
+import { Colors } from '@/constants/Colors';
 import { FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Dimensions, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { ActivityIndicator, Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
+import { RecipeDetailModal } from '../components/RecipeDetailModal';
 
 // --- Interfaces ---
 interface Recipe {
@@ -28,32 +30,22 @@ interface HistoryItem {
     suggestion: Suggestion;
 }
 
-// --- Componente Modal ---
-const RecipeModal = ({ visible, onClose, recipe, onStartCooking }: { visible: boolean, onClose: () => void, recipe: Recipe | null, onStartCooking: (id: string) => void }) => {
-    if (!recipe) return null;
-    const imageUrl = (recipe.image && typeof recipe.image === 'string' && recipe.image.startsWith('http'))
-        ? recipe.image
-        : 'https://placehold.co/600x400/FF5C00/FFFFFF?text=Receta';
-    return (
-        <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
-            <View style={modalStyles.modalContainer}><View style={modalStyles.modalContent}><Image source={{ uri: imageUrl }} style={modalStyles.modalImage} /><ScrollView style={modalStyles.modalScrollView}><Text style={modalStyles.modalTitle}>{recipe.name}</Text><Text style={modalStyles.modalSubtitle}>Ingredientes</Text>{recipe.ingredients?.map((ingredient, index) => (<Text key={index} style={modalStyles.modalText}>• {ingredient}</Text>))}<Text style={modalStyles.modalSubtitle}>Preparación</Text><Text style={modalStyles.modalText}>{recipe.steps?.replace(/\\n/g, '\n')}</Text></ScrollView>
-            <TouchableOpacity style={modalStyles.cookButton} onPress={() => onStartCooking(recipe.id)}><FontAwesome name="spoon" size={20} color="white" style={{marginRight: 10}} /><Text style={modalStyles.closeButtonText}>Modo Cocina</Text></TouchableOpacity>
-            <TouchableOpacity style={modalStyles.closeButton} onPress={onClose}><Text style={modalStyles.closeButtonText}>Cerrar</Text></TouchableOpacity></View></View>
-        </Modal>
-    );
+// --- Función para formatear la fecha ---
+const formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' };
+    return new Intl.DateTimeFormat('es-CL', options).format(date);
 };
 
 // --- Componente de la Tarjeta de Historial (Rediseñado) ---
 const HistoryCard = ({ item, onPress, onToggleFavorite, isFavorite }: { item: HistoryItem, onPress: () => void, onToggleFavorite: () => void, isFavorite: boolean }) => {
     if (!item.suggestion.recipe) {
-        // Renderiza una tarjeta no interactiva si no hay receta
+        // Renderiza una tarjeta simple si no hay receta (poco probable en el historial)
         return (
             <View style={[styles.cardContainer, styles.cardContainerDisabled]}>
-                <View style={styles.card}>
-                    <View style={styles.cardTextContainer}>
-                        <Text style={styles.cardTitle} numberOfLines={2}>{item.suggestion.dish}</Text>
-                        <Text style={styles.cardCategory}>{item.suggestion.reason}</Text>
-                    </View>
+                 <View style={styles.cardTextContainer}>
+                    <Text style={styles.cardTitle} numberOfLines={2}>{item.suggestion.dish}</Text>
+                    <Text style={styles.cardCategory}>{item.suggestion.reason}</Text>
                 </View>
             </View>
         );
@@ -61,30 +53,25 @@ const HistoryCard = ({ item, onPress, onToggleFavorite, isFavorite }: { item: Hi
 
     const imageUrl = (item.suggestion.recipe.image && typeof item.suggestion.recipe.image === 'string' && item.suggestion.recipe.image.startsWith('http'))
         ? item.suggestion.recipe.image
-        : 'https://placehold.co/300x200/FFDDC9/FF5C00?text=🍲';
+        : 'https://placehold.co/600x400/FFDDC9/FF5C00?text=🍲';
 
     return (
-        <View style={styles.cardContainer}>
-            <TouchableOpacity onPress={onPress} style={styles.card}>
+        <Animated.View entering={FadeInUp}>
+            <TouchableOpacity style={styles.cardContainer} onPress={onPress}>
                 <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+                <View style={styles.cardOverlay} />
                 <View style={styles.cardTextContainer}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>{item.suggestion.dish}</Text>
+                    <Text style={styles.cardTitle}>{item.suggestion.dish}</Text>
                     <Text style={styles.cardCategory}>{formatDate(item.date)}</Text>
                 </View>
+                <TouchableOpacity onPress={onToggleFavorite} style={styles.favoriteButton}>
+                    <FontAwesome name={isFavorite ? 'star' : 'star-o'} size={22} color={isFavorite ? Colors.theme.primary : 'white'} />
+                </TouchableOpacity>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onToggleFavorite} style={styles.favoriteButton}>
-                <FontAwesome name={isFavorite ? 'star' : 'star-o'} size={22} color={isFavorite ? Colors.theme.primary : Colors.theme.grey} />
-            </TouchableOpacity>
-        </View>
+        </Animated.View>
     );
 };
 
-// --- Función para formatear la fecha ---
-const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' };
-    return new Intl.DateTimeFormat('es-CL', options).format(date);
-};
 
 // --- Pantalla de Historial ---
 export default function HistoryScreen() {
@@ -133,6 +120,25 @@ export default function HistoryScreen() {
     const handleOpenModal = (recipe: Recipe) => { setSelectedRecipe(recipe); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedRecipe(null); };
 
+    const handleClearHistory = () => {
+        Alert.alert(
+            "Borrar Historial",
+            "¿Estás seguro de que quieres eliminar todo tu historial de sugerencias? Esta acción no se puede deshacer.",
+            [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Borrar", style: "destructive", onPress: async () => {
+                    try {
+                        await AsyncStorage.removeItem('suggestionHistory');
+                        setHistory([]);
+                    } catch (e) {
+                        console.error("Failed to clear history.", e);
+                        Alert.alert("Error", "No se pudo borrar el historial.");
+                    }
+                }}
+            ]
+        );
+    };
+
     return (
         <View style={styles.container}>
             <StatusBar style="dark" />
@@ -140,6 +146,7 @@ export default function HistoryScreen() {
                 <View style={styles.loaderContainer}><ActivityIndicator size="large" color={Colors.theme.primary} /></View>
             ) : (
                 <FlatList
+                    key="history-list" // Clave estática para evitar errores de recarga en caliente
                     data={history}
                     renderItem={({ item }) => (
                         <HistoryCard 
@@ -150,9 +157,18 @@ export default function HistoryScreen() {
                         />
                     )}
                     keyExtractor={(item, index) => `${item.date}-${item.suggestion.dish}-${index}`}
-                    numColumns={2}
+                    numColumns={1}
                     contentContainerStyle={styles.listContent}
-                    ListHeaderComponent={<Text style={styles.headerTitle}>Historial</Text>}
+                    ListHeaderComponent={
+                        <View style={styles.headerContainer}>
+                            <Text style={styles.headerTitle}>Historial</Text>
+                            {history.length > 0 && (
+                                <TouchableOpacity onPress={handleClearHistory}>
+                                    <Text style={styles.clearButton}>Borrar todo</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    }
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <FontAwesome name="history" size={40} color={Colors.theme.grey} />
@@ -162,18 +178,14 @@ export default function HistoryScreen() {
                     }
                 />
             )}
-            <RecipeModal 
+            <RecipeDetailModal 
                 visible={modalVisible} 
                 onClose={handleCloseModal} 
                 recipe={selectedRecipe}
-                onStartCooking={handleStartCooking}
             />
         </View>
     );
 }
-
-const { width } = Dimensions.get('window');
-const cardWidth = (width / 2) - 30;
 
 const styles = StyleSheet.create({
     container: { 
@@ -186,65 +198,77 @@ const styles = StyleSheet.create({
         alignItems: 'center' 
     },
     listContent: { 
-        paddingHorizontal: 10,
+        paddingHorizontal: 15,
+        paddingBottom: 40,
+    },
+    headerContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 60,
+        marginBottom: 15,
+        paddingHorizontal: 5,
     },
     headerTitle: { 
-        fontSize: 32, 
+        fontSize: 34, 
         fontWeight: 'bold', 
         color: Colors.theme.text, 
-        marginBottom: 15, 
-        marginTop: 60, 
-        paddingHorizontal: 10 
     },
-    cardContainer: {
-        width: cardWidth,
-        margin: 10,
-        backgroundColor: Colors.theme.card,
-        borderRadius: 15,
-        shadowColor: Colors.theme.shadow,
-        shadowOffset: { width: 0, height: 4 },
+    clearButton: {
+        fontSize: 14,
+        color: Colors.theme.primary,
+        fontWeight: '600',
+    },
+    cardContainer: { 
+        width: '100%', 
+        height: 200, 
+        marginBottom: 20,
+        borderRadius: 15, 
+        backgroundColor: Colors.theme.card, 
+        elevation: 4,
+        shadowColor: '#000',
         shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 5,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 5 },
+        justifyContent: 'flex-end',
     },
     cardContainerDisabled: {
-        opacity: 0.7,
-    },
-    card: {
-        width: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        height: 150,
     },
     cardImage: { 
+        ...StyleSheet.absoluteFillObject, 
         width: '100%', 
-        height: 120, 
-        borderTopLeftRadius: 15,
-        borderTopRightRadius: 15,
+        height: '100%', 
+        borderRadius: 15 
+    },
+    cardOverlay: { 
+        ...StyleSheet.absoluteFillObject, 
+        backgroundColor: 'rgba(0,0,0,0.4)', 
+        borderRadius: 15 
     },
     cardTextContainer: { 
-        padding: 10,
+        padding: 15 
     },
     cardTitle: { 
-        fontSize: 16, 
+        fontSize: 22, 
         fontWeight: 'bold', 
-        color: Colors.theme.text,
-        height: 40,
+        color: 'white' 
     },
     cardCategory: { 
-        fontSize: 12, 
-        color: Colors.theme.grey,
-        marginTop: 4,
-    },
-    cardDate: {
-        fontSize: 12,
-        color: Colors.theme.grey,
-        marginBottom: 4,
+        fontSize: 14, 
+        color: 'rgba(255,255,255,0.8)', 
+        marginTop: 4 
     },
     favoriteButton: { 
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        backgroundColor: 'rgba(255,255,255,0.8)',
-        padding: 6,
-        borderRadius: 15,
+        position: 'absolute', 
+        top: 15, 
+        right: 15, 
+        backgroundColor: 'rgba(0,0,0,0.5)', 
+        padding: 8, 
+        borderRadius: 20 
     },
     emptyContainer: { 
         flex: 1,
@@ -265,17 +289,4 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         paddingHorizontal: 40,
     },
-});
-
-const modalStyles = StyleSheet.create({
-    modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
-    modalContent: { width: '90%', height: '80%', backgroundColor: 'white', borderRadius: 20, overflow: 'hidden' },
-    modalImage: { width: '100%', height: '40%' },
-    modalScrollView: { padding: 20 },
-    modalTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 15 },
-    modalSubtitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, marginBottom: 5 },
-    modalText: { fontSize: 16, lineHeight: 24 },
-    cookButton: { backgroundColor: Colors.theme.accent, padding: 15, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-    closeButton: { backgroundColor: Colors.theme.primary, padding: 15, alignItems: 'center' },
-    closeButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
 });
