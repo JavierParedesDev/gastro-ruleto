@@ -31,7 +31,8 @@ export default function LoginScreen() {
         if (!email || !password) return Alert.alert("Error", "Por favor, ingresa tu correo y contraseña.");
         setLoading(true);
         try {
-            await login(email, password);
+            // La persistencia de la sesión se maneja automáticamente
+            await login(email, password); 
             router.replace('/(tabs)'); 
         } catch (error: any) { 
             Alert.alert("Error en el Login", "El correo o la contraseña son incorrectos."); 

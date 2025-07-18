@@ -6,8 +6,8 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { CustomAlert } from '../components/CustomAlert';
 import { auth, db } from '../firebaseConfig';
-
 
 interface Frame { name: string; url: string; }
 
@@ -28,7 +28,7 @@ export interface UserProfile {
     equippedFrameUrl?: string;
     viewedBadgesCount?: number; 
     viewedFramesCount?: number;
-    nicknameLastChanged?: any; // **NUEVO CAMPO**
+    nicknameLastChanged?: any;
 }
 
 interface RegistrationData {
@@ -41,6 +41,19 @@ interface RegistrationData {
     nickname: string;
 }
 
+interface AlertButton {
+    text: string;
+    onPress: () => void;
+    style?: 'primary' | 'destructive' | 'cancel';
+}
+
+interface AlertConfig {
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AlertButton[];
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   loading: boolean;
@@ -51,6 +64,7 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<any>;
   logout: () => Promise<void>;
   fetchUserProfile: (uid: string) => Promise<void>;
+  showAlert: (config: Omit<AlertConfig, 'visible'>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -65,6 +79,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLoginPromptVisible, setLoginPromptVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '', buttons: [] });
 
   const fetchUserProfile = useCallback(async (uid: string) => {
     const docRef = doc(db, "users", uid);
@@ -89,6 +104,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const promptLogin = () => setLoginPromptVisible(true);
   const closeLoginPrompt = () => setLoginPromptVisible(false);
 
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig({ visible: false, title: '', message: '', buttons: [] });
+  };
+
   const register = async (data: RegistrationData) => {
     const { email, pass, name, lastName, birthDate, gender, nickname } = data;
     const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
@@ -102,7 +125,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         followersCount: 0, followingCount: 0, 
         badges: [], frames: [], equippedFrameUrl: '',
         viewedBadgesCount: 0, viewedFramesCount: 0, 
-        nicknameLastChanged: serverTimestamp(), // **AÑADIDO**: Se establece la fecha de creación.
+        nicknameLastChanged: serverTimestamp(),
     });
 
     const nicknameRef = doc(db, "nicknames", nickname.toLowerCase());
@@ -113,6 +136,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const login = (email: string, pass: string) => {
+    // La persistencia de la sesión se maneja en firebaseConfig.js
+    // que establece la persistencia para React Native por defecto.
     return signInWithEmailAndPassword(auth, email, pass);
   };
 
@@ -120,7 +145,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return signOut(auth);
   };
 
-  const value = { user, loading, isLoginPromptVisible, promptLogin, closeLoginPrompt, register, login, logout, fetchUserProfile };
+  const value = { user, loading, isLoginPromptVisible, promptLogin, closeLoginPrompt, register, login, logout, fetchUserProfile, showAlert };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+        {children}
+        <CustomAlert 
+            visible={alertConfig.visible}
+            title={alertConfig.title}
+            message={alertConfig.message}
+            buttons={alertConfig.buttons.map(btn => ({...btn, onPress: () => { hideAlert(); btn.onPress(); } }))}
+            onClose={hideAlert}
+        />
+    </AuthContext.Provider>
+  );
 };

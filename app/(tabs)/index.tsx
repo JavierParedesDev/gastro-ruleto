@@ -6,13 +6,14 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { collection, getDocs } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ImageBackground, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import ProfilePicture from '../../components/ProfilePicture'; // **Importar ProfilePicture**
+import { ActivityIndicator, ImageBackground, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import ProfilePicture from '../../components/ProfilePicture';
+import { RecipeDetailModal } from '../../components/RecipeDetailModal';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// --- Interfaces (sin cambios) ---
+// --- Interfaces ---
 interface WeatherData {
   location: { name: string; localtime: string; };
   current: { temp_c: number; condition: { text: string; }; };
@@ -33,7 +34,7 @@ interface HistoryItem {
     suggestion: Suggestion;
 }
 
-// --- Lógica de Sugerencias (sin cambios) ---
+// --- Lógica de Sugerencias ---
 const getSuggestion = (weather: WeatherData | null, recipes: Recipe[]): Suggestion => {
     if (!weather || recipes.length === 0) return { icon: '🤔', dish: "Buscando ideas...", reason: "Cargando información para ti." };
     const localtime = new Date(weather.location.localtime);
@@ -69,17 +70,6 @@ const getCurrentCategory = (localtime: Date): string => {
     if ((hour >= 16 && minutes >= 30) || (hour > 16 && hour < 20)) return 'Once';
     if (hour >= 20) return 'Noche';
     return 'General';
-};
-
-// --- Componente Modal (sin cambios) ---
-const RecipeModal = ({ visible, onClose, recipe }: { visible: boolean, onClose: () => void, recipe: Recipe | null }) => {
-    if (!recipe) return null;
-    const imageUrl = (recipe.image && typeof recipe.image === 'string' && recipe.image.startsWith('http')) ? recipe.image : 'https://placehold.co/600x400/FF5C00/FFFFFF?text=Receta';
-    return (
-        <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
-            <View style={modalStyles.modalContainer}><View style={modalStyles.modalContent}><Image source={{ uri: imageUrl }} style={modalStyles.modalImage} /><ScrollView style={modalStyles.modalScrollView}><Text style={modalStyles.modalTitle}>{recipe.name}</Text><Text style={modalStyles.modalSubtitle}>Ingredientes</Text>{recipe.ingredients?.map((ingredient, index) => (<Text key={index} style={modalStyles.modalText}>• {ingredient}</Text>))}<Text style={modalStyles.modalSubtitle}>Preparación</Text><Text style={modalStyles.modalText}>{recipe.steps?.replace(/\\n/g, '\n')}</Text></ScrollView><TouchableOpacity style={modalStyles.closeButton} onPress={onClose}><Text style={modalStyles.closeButtonText}>Cerrar</Text></TouchableOpacity></View></View>
-        </Modal>
-    );
 };
 
 // --- Componente de Sugerencia para Usuario Logueado ---
@@ -133,7 +123,7 @@ const GuestSuggestionCard = () => {
     return (
         <View style={styles.suggestionCard}>
             <ImageBackground 
-                source={require('../../assets/images/splash-icon.png')} // Imagen de fondo genérica
+                source={require('../../assets/images/splash-icon.png')}
                 style={styles.imageBackground} 
                 imageStyle={{ borderRadius: 24, opacity: 0.1 }}
                 resizeMode="cover"
@@ -225,12 +215,7 @@ export default function HomeScreen() {
                 <View style={styles.header}>
                     <View>
                         <Text style={styles.greeting}>{getGreeting()}{user ? `, ${user.name}` : '!'}</Text>
-                        {user && userTitle && (
-                            <View style={styles.titleBadge}>
-                                <FontAwesome name="trophy" size={14} color="#D4AF37" />
-                                <Text style={styles.userTitle}>{userTitle}</Text>
-                            </View>
-                        )}
+                    
                     </View>
                     {user && (
                         <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
@@ -248,6 +233,12 @@ export default function HomeScreen() {
                 ) : (
                     <GuestSuggestionCard />
                 )}
+                    {user && userTitle && (
+                            <View style={styles.titleBadge}>
+                                <FontAwesome name="trophy" size={14} color="#D4AF37" />
+                                <Text style={styles.userTitle}>{userTitle}</Text>
+                            </View>
+                        )}
 
                 <View style={styles.optionsContainer}>
                     <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./discover')}>
@@ -276,7 +267,7 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
                 
-                <RecipeModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />
+                <RecipeDetailModal visible={modalVisible} onClose={handleCloseModal} recipe={selectedRecipe} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -317,7 +308,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 4,
         marginTop: 5,
-        alignSelf: 'flex-start',
+        alignSelf: 'center',
+        marginHorizontal: 20,
+        marginBottom: 20,
     },
     userTitle: {
         marginLeft: 6,
@@ -325,7 +318,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#B45309',
     },
-    // Estilos de la tarjeta de sugerencia
     suggestionCard: {
         height: 450,
         borderRadius: 24,
@@ -396,7 +388,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 10,
     },
-    // Estilos para la tarjeta de invitado
     guestContent: {
         flex: 1,
         justifyContent: 'center',
@@ -430,7 +421,6 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 16,
     },
-    // Estilos de los botones de opciones
     optionsContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -457,16 +447,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: Colors.theme.text,
     },
-});
-
-const modalStyles = StyleSheet.create({
-    modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
-    modalContent: { width: '90%', height: '75%', backgroundColor: 'white', borderRadius: 20, overflow: 'hidden' },
-    modalImage: { width: '100%', height: '40%' },
-    modalScrollView: { padding: 20 },
-    modalTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 15 },
-    modalSubtitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, marginBottom: 5 },
-    modalText: { fontSize: 16, lineHeight: 24 },
-    closeButton: { backgroundColor: Colors.theme.primary, padding: 15, alignItems: 'center' },
-    closeButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
 });

@@ -20,16 +20,16 @@ export const Colors = {
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
   },
-  // Tu paleta de colores personalizada
+  // Tu paleta de colores personalizada - Propuesta 1
   theme: {
-    primary: '#FF5C00', // Naranja principal
-    secondary: '#FF8C42', // Naranja más claro
-    accent: '#34A853', // Verde para acciones
-    background: '#F8F9FA', // Un fondo muy claro, casi blanco
-    text: '#333333', // Texto oscuro principal
-    textLight: '#FFFFFF', // Texto claro para fondos oscuros
-    card: '#FFFFFF', // Color de las tarjetas
-    shadow: '#000000', // Color para las sombras
-    grey: '#888888', // Un gris para textos secundarios
+    primary: '#FF5C00',     // Naranja principal
+    secondary: '#0033beff',   // Azul vibrante para acentos y botones
+    accent: '#FF8C42',      // Naranja más claro para toques sutiles
+    background: '#F8F9FA',  // Un fondo muy claro, casi blanco
+    text: '#343A40',        // Texto oscuro principal
+    textLight: '#FFFFFF',   // Texto claro para fondos oscuros
+    card: '#FFFFFF',        // Color de las tarjetas
+    shadow: '#000000',      // Color para las sombras
+    grey: '#888888',        // Un gris para textos secundarios
   }
 };

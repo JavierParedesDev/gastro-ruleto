@@ -1,12 +1,11 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { collection, deleteDoc, doc, getDocs, limit, orderBy, query, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { deleteObject, getStorage, ref } from 'firebase/storage';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, SafeAreaView, ScrollView, StyleProp, StyleSheet, Text, TextStyle, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { EditProfileModal } from '../../components/EditProfileModal';
-import { FriendsModal } from '../../components/FriendsModal'; // **Importar el nuevo modal**
+import { FriendsModal } from '../../components/FriendsModal';
 import { PostDetailModal } from '../../components/PostDetailModal';
 import ProfilePicture from '../../components/ProfilePicture';
 import { Colors } from '../../constants/Colors';
@@ -28,6 +27,36 @@ interface Post {
 interface Frame { name: string; url: string; }
 interface Duel { id: string; title: string; }
 
+// --- Componente para el patrón de fondo ---
+const HeaderIconPattern = () => {
+    const pattern = useMemo(() => {
+        const icons = ['cutlery', 'spoon', 'coffee', 'glass', 'lemon-o', 'star-o', 'heart-o'];
+        const generatedPattern = [];
+        const numIcons = 40; // Cantidad de íconos en el patrón
+
+        for (let i = 0; i < numIcons; i++) {
+            const iconName = icons[i % icons.length] as React.ComponentProps<typeof FontAwesome>['name'];
+            const style: StyleProp<TextStyle> = {
+                position: 'absolute',
+                top: `${Math.random() * 100}%`,
+                left: `${Math.random() * 100}%`,
+                transform: [
+                    { rotate: `${Math.random() * 360}deg` },
+                    { scale: Math.random() * 0.6 + 0.4 } 
+                ],
+                opacity: 0.1,
+            };
+            generatedPattern.push(
+                <FontAwesome key={i} name={iconName} size={30} color={Colors.theme.textLight} style={style} />
+            );
+        }
+        return generatedPattern;
+    }, []); // El array de dependencias vacío asegura que esto se ejecute solo una vez
+
+    return <View style={StyleSheet.absoluteFill}>{pattern}</View>;
+};
+
+
 // --- Componentes ---
 const ProfilePostCard = ({ item, onPress, onOpenMenu }: { item: Post, onPress: () => void, onOpenMenu: () => void }) => (
     <TouchableOpacity style={styles.postItem} onPress={onPress} onLongPress={onOpenMenu}>
@@ -40,7 +69,7 @@ const ProfilePostCard = ({ item, onPress, onOpenMenu }: { item: Post, onPress: (
 
 // --- Pantalla de Perfil ---
 export default function ProfileScreen() {
-    const { user, logout, fetchUserProfile } = useAuth();
+    const { user, logout, fetchUserProfile, showAlert } = useAuth();
     const router = useRouter();
     const [userPosts, setUserPosts] = useState<Post[]>([]);
     const [loadingPosts, setLoadingPosts] = useState(true);
@@ -52,8 +81,19 @@ export default function ProfileScreen() {
     const [activeDuel, setActiveDuel] = useState<Duel | null>(null);
     const [hasNewBadges, setHasNewBadges] = useState(false);
     const [hasNewFrames, setHasNewFrames] = useState(false);
-    const [isFriendsModalVisible, setIsFriendsModalVisible] = useState(false); // **Nuevo estado**
-    const [friendsModalInitialTab, setFriendsModalInitialTab] = useState<'following' | 'followers' | 'search'>('search'); // **Nuevo estado**
+    const [isFriendsModalVisible, setIsFriendsModalVisible] = useState(false);
+    const [friendsModalInitialTab, setFriendsModalInitialTab] = useState<'following' | 'followers' | 'search'>('search');
+
+    const handleLogout = () => {
+        showAlert({
+            title: 'Cerrar Sesión',
+            message: '¿Estás seguro de que quieres cerrar sesión?',
+            buttons: [
+                { text: 'Cancelar', onPress: () => {}, style: 'cancel' },
+                { text: 'Cerrar Sesión', onPress: logout, style: 'destructive' },
+            ]
+        });
+    };
 
     const loadProfileData = useCallback(async () => {
         if (!user) { 
@@ -63,13 +103,11 @@ export default function ProfileScreen() {
         setLoadingPosts(true);
         try {
             await fetchUserProfile(user.uid);
-            // Fetch Posts
             const postsRef = collection(db, "posts");
             const qPosts = query(postsRef, where("authorId", "==", user.uid), orderBy("createdAt", "desc"));
             const postsSnapshot = await getDocs(qPosts);
             setUserPosts(postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[]);
 
-            // Fetch Active Duel
             const duelsRef = collection(db, "duels");
             const qDuels = query(duelsRef, where("isActive", "==", true), limit(1));
             const duelSnapshot = await getDocs(qDuels);
@@ -241,66 +279,64 @@ export default function ProfileScreen() {
             <FlatList
                 ListHeaderComponent={
                     <>
-                        <LinearGradient
-                            colors={[Colors.theme.secondary, Colors.theme.primary]}
-                            style={styles.headerGradient}
-                        >
-                            <View style={styles.headerContainer}>
+                        <View style={styles.headerShape}>
+                            <HeaderIconPattern />
+                            <View style={styles.headerContent}>
+                                <TouchableOpacity style={styles.headerButton} onPress={handleLogout}>
+                                    <FontAwesome name="sign-out" size={24} color={Colors.theme.textLight} />
+                                </TouchableOpacity>
                                 <ProfilePicture 
                                     photoURL={user.photoURL}
                                     frameURL={user.equippedFrameUrl}
-                                    size={screenWidth * 0.25}
+                                    size={screenWidth * 0.3}
+                                    borderColor={Colors.theme.background}
+                                    borderWidth={4}
                                 />
-                                <Text style={styles.name}>{user.name} {user.lastName}</Text>
-                                <Text style={styles.nickname}>@{user.nickname}</Text>
-                                {user.description ? <Text style={styles.description}>{user.description}</Text> : null}
-                                {userTitle && (
-                                    <View style={styles.titleBadge}>
-                                        <FontAwesome name="trophy" size={14} color="#D4AF37" />
-                                        <Text style={styles.userTitle}>{userTitle}</Text>
-                                    </View>
-                                )}
-                                <View style={styles.statsContainer}>
-                                    <View style={styles.stat}><Text style={styles.statNumber}>{userPosts.length}</Text><Text style={styles.statLabel}>Posts</Text></View>
-                                    <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('followers')}>
-                                        <Text style={styles.statNumber}>{user.followersCount || 0}</Text>
-                                        <Text style={styles.statLabel}>Seguidores</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('following')}>
-                                        <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
-                                        <Text style={styles.statLabel}>Siguiendo</Text>
-                                    </TouchableOpacity>
-                                </View>
-                                <View style={styles.buttonRow}>
-                                    <TouchableOpacity style={[styles.profileButton, styles.editButton]} onPress={() => setIsEditModalVisible(true)}>
-                                        <Text style={styles.buttonText}>Editar Perfil</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.profileButton, styles.iconButton]} onPress={() => openFriendsModal('search')}>
-                                        <FontAwesome name="user-plus" size={16} color={Colors.theme.primary} />
-                                    </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.profileButton, styles.iconButton]} onPress={logout}>
-                                        <FontAwesome name="sign-out" size={16} color={Colors.theme.primary} />
-                                    </TouchableOpacity>
-                                </View>
+                                <TouchableOpacity style={styles.headerButton} onPress={() => openFriendsModal('search')}>
+                                    <FontAwesome name="user-plus" size={24} color={Colors.theme.textLight} />
+                                </TouchableOpacity>
                             </View>
-                        </LinearGradient>
+                            <Text style={styles.name}>{user.name} {user.lastName}</Text>
+                            <Text style={styles.nickname}>@{user.nickname}</Text>
+                            {user.description ? <Text style={styles.description}>{user.description}</Text> : null}
+                        </View>
+
+                        <View style={styles.statsContainer}>
+                            <View style={styles.stat}><Text style={styles.statNumber}>{userPosts.length}</Text><Text style={styles.statLabel}>Posts</Text></View>
+                            <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('followers')}>
+                                <Text style={styles.statNumber}>{user.followersCount || 0}</Text>
+                                <Text style={styles.statLabel}>Seguidores</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.stat} onPress={() => openFriendsModal('following')}>
+                                <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
+                                <Text style={styles.statLabel}>Siguiendo</Text>
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <TouchableOpacity style={styles.editButton} onPress={() => setIsEditModalVisible(true)}>
+                            <Text style={styles.editButtonText}>Editar Perfil</Text>
+                        </TouchableOpacity>
 
                         <View style={styles.tabContainer}>
-                            <TouchableOpacity onPress={() => handleTabChange('posts')} style={[styles.tabButton, activeTab === 'posts' && styles.tabButtonActive]}><FontAwesome name="th" size={20} color={activeTab === 'posts' ? Colors.theme.primary : Colors.theme.grey} /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => handleTabChange('posts')} style={[styles.tabButton, activeTab === 'posts' && styles.tabButtonActive]}>
+                                <FontAwesome name="th" size={20} color={activeTab === 'posts' ? Colors.theme.secondary : Colors.theme.grey} />
+                                <Text style={[styles.tabText, activeTab === 'posts' && {color: Colors.theme.secondary}]}>Posts</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity onPress={() => handleTabChange('badges')} style={[styles.tabButton, activeTab === 'badges' && styles.tabButtonActive]}>
                                 <View>
-                                    <FontAwesome name="trophy" size={20} color={activeTab === 'badges' ? Colors.theme.primary : Colors.theme.grey} />
+                                    <FontAwesome name="trophy" size={20} color={activeTab === 'badges' ? Colors.theme.secondary : Colors.theme.grey} />
                                     {hasNewBadges && <View style={styles.newIndicator} />}
                                 </View>
+                                <Text style={[styles.tabText, activeTab === 'badges' && {color: Colors.theme.secondary}]}>Insignias</Text>
                             </TouchableOpacity>
                             <TouchableOpacity onPress={() => handleTabChange('frames')} style={[styles.tabButton, activeTab === 'frames' && styles.tabButtonActive]}>
                                 <View>
-                                    <FontAwesome name="image" size={20} color={activeTab === 'frames' ? Colors.theme.primary : Colors.theme.grey} />
+                                    <FontAwesome name="image" size={20} color={activeTab === 'frames' ? Colors.theme.secondary : Colors.theme.grey} />
                                     {hasNewFrames && <View style={styles.newIndicator} />}
                                 </View>
+                                <Text style={[styles.tabText, activeTab === 'frames' && {color: Colors.theme.secondary}]}>Marcos</Text>
                             </TouchableOpacity>
                         </View>
-                       
                     </>
                 }
                 data={activeTab === 'posts' ? userPosts : []}
@@ -388,42 +424,89 @@ const screenWidth = Dimensions.get('window').width;
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.theme.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    headerGradient: {
-        paddingTop: 40,
-        paddingBottom: 20,
-    },
-    headerContainer: { alignItems: 'center', paddingHorizontal: 20  },
-    name: { fontSize: 24, fontWeight: 'bold', color: 'white', marginTop: 15, textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 2 },
-    nickname: { fontSize: 16, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
-    titleBadge: {
-        flexDirection: 'row',
+    headerShape: {
+        backgroundColor: Colors.theme.primary,
+        paddingBottom: 60,
+        borderBottomLeftRadius: 40,
+        borderBottomRightRadius: 40,
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        overflow: 'hidden',
+    },
+    headerContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%',
+        paddingHorizontal: 30,
+        paddingTop: 50,
+        zIndex: 1,
+    },
+    headerButton: {
+        padding: 10,
+    },
+    name: { fontSize: 24, fontWeight: 'bold', color: Colors.theme.textLight, marginTop: 15, zIndex: 1 },
+    nickname: { fontSize: 16, color: 'rgba(255,255,255,0.8)', marginTop: 2, zIndex: 1 },
+    description: { fontSize: 14, color: Colors.theme.textLight, textAlign: 'center', marginTop: 10, paddingHorizontal: 40, fontStyle: 'italic', zIndex: 1 },
+    statsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        width: '90%',
+        alignSelf: 'center',
+        backgroundColor: Colors.theme.card,
+        borderRadius: 20,
+        paddingVertical: 20,
+        marginTop: -40,
+        elevation: 10,
+        shadowColor: Colors.theme.shadow,
+        shadowOffset: { width: 0, height: 5 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+    },
+    stat: { alignItems: 'center' },
+    statNumber: { fontSize: 20, fontWeight: 'bold', color: Colors.theme.text },
+    statLabel: { fontSize: 14, color: Colors.theme.grey, marginTop: 4 },
+    editButton: {
+        alignSelf: 'center',
+        marginTop: 20,
+        backgroundColor: Colors.theme.secondary,
+        paddingVertical: 12,
+        paddingHorizontal: 40,
+        borderRadius: 30,
+        elevation: 5,
+        shadowColor: Colors.theme.secondary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+    },
+    editButtonText: {
+        color: Colors.theme.textLight,
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    tabContainer: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-around', 
+        borderBottomWidth: 1, 
+        borderBottomColor: '#e0e0e0', 
+        backgroundColor: Colors.theme.card,
+        marginTop: 25,
+        marginHorizontal: 20,
         borderRadius: 15,
-        paddingHorizontal: 12,
         paddingVertical: 5,
-        marginTop: 8,
     },
-    userTitle: {
-        marginLeft: 6,
-        fontSize: 15,
-        fontWeight: '600',
-        color: 'white',
+    tabButton: { 
+        alignItems: 'center', 
+        padding: 10,
+        borderRadius: 10,
     },
-    description: { fontSize: 12, color: Colors.theme.textLight, textAlign: 'center', marginTop: 15, paddingHorizontal: 20 },
-    statsContainer: { flexDirection: 'row', marginTop: 20, marginBottom: 20 },
-    stat: { alignItems: 'center', paddingHorizontal: 20 },
-    statNumber: { fontSize: 18, fontWeight: 'bold', color: 'white' },
-    statLabel: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
-    statSeparator: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
-    buttonRow: { flexDirection: 'row', alignItems: 'center' },
-    profileButton: { justifyContent: 'center', alignItems: 'center', borderRadius: 8, marginHorizontal: 5 },
-    buttonText: { fontWeight: 'bold', fontSize: 14, color: Colors.theme.primary },
-    editButton: { backgroundColor: 'white', paddingVertical: 10, paddingHorizontal: 30 },
-    iconButton: { backgroundColor: 'white', padding: 10, width: 40, height: 40, borderRadius: 20 },
-    tabContainer: { flexDirection: 'row', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: '#e0e0e0', backgroundColor: Colors.theme.card },
-    tabButton: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
-    tabButtonActive: { borderBottomColor: Colors.theme.primary },
+    tabButtonActive: { 
+        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+    },
+    tabText: {
+        fontSize: 12,
+        color: Colors.theme.grey,
+        marginTop: 4,
+    },
     newIndicator: { position: 'absolute', top: -2, right: -8, width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.theme.primary, borderWidth: 1.5, borderColor: Colors.theme.card },
     postItem: { width: (screenWidth / 3), height: (screenWidth / 3), position: 'relative' },
     postImage: { width: '100%', height: '100%' },
@@ -478,5 +561,20 @@ const styles = StyleSheet.create({
         marginLeft: 15,
         fontSize: 16,
         color: Colors.theme.text,
+    },
+    titleBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        borderRadius: 15,
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        marginTop: 8,
+    },
+    userTitle: {
+        marginLeft: 6,
+        fontSize: 15,
+        fontWeight: '600',
+        color: 'white',
     },
 });
