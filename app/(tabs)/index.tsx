@@ -253,9 +253,10 @@ export default function HomeScreen() {
                         <FontAwesome name="shopping-basket" size={24} color={Colors.theme.primary} />
                         <Text style={styles.optionText}>Mi Despensa</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./map')}>
+                    <TouchableOpacity style={styles.optionButton}>
                         <FontAwesome name="map-marker" size={24} color={Colors.theme.primary} />
-                        <Text style={styles.optionText}>Mapa</Text>
+                        <Text style={styles.textPronto}>Mapa</Text>
+                        <Text style={styles.textPronto}>Pronto disponible</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.optionButton} onPress={() => router.push('./historial')}>
                         <FontAwesome name="history" size={24} color={Colors.theme.primary} />
@@ -446,5 +447,11 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: Colors.theme.text,
+    },
+    textPronto: {
+        fontSize: 12,
+        color: Colors.theme.grey,
+        marginTop: 5,
+        fontStyle: 'italic',
     },
 });
